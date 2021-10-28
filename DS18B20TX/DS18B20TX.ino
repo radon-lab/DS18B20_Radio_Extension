@@ -1,5 +1,5 @@
 /*
-  Arduino IDE 1.8.13 версия прошивки TX 3.3.0 релиз от 22.10.21
+  Arduino IDE 1.8.13 версия прошивки TX 3.3.1 релиз от 28.10.21
 
   Автор Radon-lab.
 */
@@ -151,7 +151,6 @@ void sendAddrDS(void) //отправка адреса датчика
   uint8_t dataRaw[8]; //временный буфер
 
   if (!oneWireReset()) { //посылаем сигнал сброса
-    oneWireWrite(0xCC); //пропуск адресации
     oneWireWrite(0x33); //запрос на отправку адреса
     for (uint8_t i = 0; i < 8; i++) dataRaw[i] = oneWireRead(); //читаем 8 байт адреса
     sendDataTX(dataRaw, sizeof(dataRaw)); //оправляем 8 байт адреса
