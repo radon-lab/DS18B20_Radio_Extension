@@ -1,5 +1,5 @@
 /*
-  Arduino IDE 1.8.13 версия прошивки TX 3.3.1 релиз от 28.10.21
+  Arduino IDE 1.8.13 версия прошивки TX 3.3.1 релиз от 29.10.21
 
   Автор Radon-lab.
 */
@@ -58,6 +58,8 @@ int main(void) {
   PORTB |= (0x01 << PB3 | 0x01 << PB4); //устанавливаем подтяжку для PB3 и PB4
 
   timeOutTransceivWaint = ((uint16_t)0x40 << ((PINB >> 3) & 0x03)); //устанавливаем начальное значение таймера
+
+  _delay_ms(1000); //ждем
 
   sendAddrDS(); //отправка адреса датчика
   requestTemp(); //запрос на преобразование температуры
@@ -150,11 +152,10 @@ void sendAddrDS(void) //отправка адреса датчика
 {
   uint8_t dataRaw[8]; //временный буфер
 
-  if (!oneWireReset()) { //посылаем сигнал сброса
-    oneWireWrite(0x33); //запрос на отправку адреса
-    for (uint8_t i = 0; i < 8; i++) dataRaw[i] = oneWireRead(); //читаем 8 байт адреса
-    sendDataTX(dataRaw, sizeof(dataRaw)); //оправляем 8 байт адреса
-  }
+  if (oneWireReset()) return; //посылаем сигнал сброса
+  oneWireWrite(0x33); //запрос на отправку адреса
+  for (uint8_t i = 0; i < 8; i++) dataRaw[i] = oneWireRead(); //читаем 8 байт адреса
+  sendDataTX(dataRaw, sizeof(dataRaw)); //оправляем 8 байт адреса
 }
 //--------------------------------------Отправка температуры------------------------------------------
 void sendDataDS(void) //отправка температуры
