@@ -1,5 +1,5 @@
 /*
-  Arduino IDE 1.8.13 версия прошивки RX 3.3.2 релиз от 26.10.21
+  Arduino IDE 1.8.13 версия прошивки RX 3.3.2 релиз от 29.10.21
 
   Автор Radon-lab.
 */
@@ -240,11 +240,11 @@ void readDataRX(void) //чтение сигнала приемника
       case 0: if (bitPulse > 132) dataMode = 1; break; //переходим в режим чтения
       case 1:
         if (bitPulse > 100) { //если был стоп бит
-          if (!checkCRC(data, byteNum)) {
+          if (!checkCRC(data, byteNum)) { //если контрольная сумма совпала
             for (uint8_t i = 0; i < byteNum; i++) {
               switch (byteNum) { //в зависимости от количества принятых байт
-                case 8: EEPROM_write(i, wireAddrBuf[i] = data[i]); break; //если контрольная сумма совпала то обновляем массив адреса шины
-                case 9: wireDataBuf[i] = data[i]; break; //если контрольная сумма совпала то обновляем массив шины
+                case 8: wireAddrBuf[i] = data[i]; EEPROM_write(i, data[i]); break; //обновляем массив адреса шины
+                case 9: wireDataBuf[i] = data[i]; break; //обновляем массив шины
               }
             }
           }
