@@ -52,8 +52,8 @@
 #define RX_DATA_INIT  RX_DATA_HI; RX_DATA_INP
 
 uint16_t timeOutReceiveWaint = 0; //счетчик тиков
-uint8_t wireDataBuf[9]; //буфер шины oneWire
-uint8_t wireAddrBuf[8]; //буфер адреса шины oneWire
+volatile uint8_t wireDataBuf[9]; //буфер шины oneWire
+volatile uint8_t wireAddrBuf[8]; //буфер адреса шины oneWire
 const uint8_t wireDataError[] = {0xD0, 0x07, 0x4B, 0x46, 0x7F, 0xFF, 0x05, 0x10, 0x46}; //значение 125
 
 int main(void) {
@@ -112,7 +112,7 @@ void readOneWire(void) //эмуляция шины 1wire
   GIFR |= (0x01 << INTF0); //сбросили флаг прерывания пина PB1
 
   while (!WIRE_CHK) if (TIFR0 & (0x01 << TOV0)) return; //ждем окончания сигнала сброса
-  if (TCNT0 < 60) return; //если сигнал сброса слишком короткий
+  if (TCNT0 < 64) return; //если сигнал сброса слишком короткий
   if (addrReg & (0x01 << ADER)) { //если ошибка чтения адреса
     addrReg = 0; //сбрасываем регистр адреса
     return; //выходим
