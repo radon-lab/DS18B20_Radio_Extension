@@ -12,9 +12,6 @@
 #define PIN_REG PINB
 #define PORT_REG PORTB
 
-#define ADER 0x01   //ошибка адреса
-#define ADOK 0x02   //адрес прочитан
-
 #define SEARCH_ROM 0xF0 //поиск адреса
 #define MATCH_ROM 0x55  //отправка адреса
 #define READ_ROM 0x33   //запрос адреса
@@ -51,9 +48,9 @@
 
 #define RX_DATA_INIT  RX_DATA_HI; RX_DATA_INP
 
-uint16_t timeOutReceiveWaint = 0; //счетчик тиков
-volatile uint8_t wireDataBuf[9]; //буфер шины oneWire
-volatile uint8_t wireAddrBuf[8]; //буфер адреса шины oneWire
+uint16_t timeOutReceiveWaint; //счетчик тиков
+uint8_t wireDataBuf[9]; //буфер шины oneWire
+uint8_t wireAddrBuf[8]; //буфер адреса шины oneWire
 const uint8_t wireDataError[] = {0xD0, 0x07, 0x4B, 0x46, 0x7F, 0xFF, 0x05, 0x10, 0x46}; //значение 125
 
 int main(void) {
@@ -105,21 +102,15 @@ void wdtEnable(void) //включение WDT
 //------------------------------Эмуляция шины 1wire---------------------------------------
 void readOneWire(void) //эмуляция шины 1wire
 {
-  static uint8_t addrReg; //флаг работы с адресом устройства
-
   TCNT0 = 0; //сбросили таймер
   TIFR0 |= (0x01 << TOV0); //сбросили флаг прерывания таймера
   GIFR |= (0x01 << INTF0); //сбросили флаг прерывания пина PB1
 
   while (!WIRE_CHK) if (TIFR0 & (0x01 << TOV0)) return; //ждем окончания сигнала сброса
   if (TCNT0 < 64) return; //если сигнал сброса слишком короткий
-  if (addrReg & (0x01 << ADER)) { //если ошибка чтения адреса
-    addrReg = 0; //сбрасываем регистр адреса
-    return; //выходим
-  }
 
   TCNT0 = 0; //сбросили таймер
-  
+
   _delay_us(2); //ждем
   WIRE_LO; //установили низкий уровень
   _delay_us(120); //ждем
@@ -130,28 +121,23 @@ void readOneWire(void) //эмуляция шины 1wire
   TCNT0 = 0; //сбросили таймер
   TIFR0 |= (0x01 << TOV0); //сбросили флаг прерывания таймера
 
-  if (!addrReg) { //если сетевой протокол не пройден
-    switch (oneWireRead()) { //читаем байт сетевого протокола
-      case READ_ROM: //комманда отправить адрес
-        for (uint8_t i = 0; i < sizeof(wireAddrBuf); i++) if (oneWireWrite(wireAddrBuf[i])) return; //отправка на шину 1wire
-        return; //выходим
-      case MATCH_ROM: //комманда сравнить адрес
-        addrReg = (0x01 << ADER); //устанавливаем флаг ошибки чтения адреса
-        for (uint8_t i = 0; i < sizeof(wireAddrBuf); i++) if (oneWireRead() != wireAddrBuf[i]) return; //отправка на шину 1wire
-        addrReg = (0x01 << ADOK); //устанавливаем флаг успешного чтения адреса
-        return; //выходим
-      //      case SEARCH_ROM: //комманда поиска адреса
-      //        for (uint8_t i = 0; i < 64; i++) {
-      //          boolean addrBit = wireAddrBuf[i >> 3] & (0x01 << (i % 8)); //находим нужный бит адреса
-      //          oneWireWriteBit(addrBit); //отправляем прямой бит
-      //          oneWireWriteBit(!addrBit); //отправляем инверсный бит
-      //          if (oneWireReadBit() != addrBit) return; //отправка на шину 1wire
-      //        }
-      //        return; //выходим
-      case SKIP_ROM: break; //пропуск адресации
-    }
+  switch (oneWireRead()) { //читаем байт сетевого протокола
+    case READ_ROM: //комманда отправить адрес
+      for (uint8_t i = 0; i < sizeof(wireAddrBuf); i++) if (oneWireWrite(wireAddrBuf[i])) return; //отправка на шину 1wire
+      return; //выходим
+    case MATCH_ROM: //комманда сравнить адрес
+      for (uint8_t i = 0; i < sizeof(wireAddrBuf); i++) if (oneWireRead() != wireAddrBuf[i]) return; //отправка на шину 1wire
+      break; //выходим
+    //      case SEARCH_ROM: //комманда поиска адреса
+    //        for (uint8_t i = 0; i < 64; i++) {
+    //          boolean addrBit = wireAddrBuf[i >> 3] & (0x01 << (i % 8)); //находим нужный бит адреса
+    //          oneWireWriteBit(addrBit); //отправляем прямой бит
+    //          oneWireWriteBit(!addrBit); //отправляем инверсный бит
+    //          if (oneWireReadBit() != addrBit) return; //отправка на шину 1wire
+    //        }
+    //        return; //выходим
+    case SKIP_ROM: break; //пропуск адресации
   }
-  else addrReg = 0; //сбрасываем регистр адреса
 
   switch (oneWireRead()) { //читаем байт команды
     case READ_DATA: //комманда отправить температуру

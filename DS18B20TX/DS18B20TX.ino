@@ -59,7 +59,7 @@ int main(void) {
 
   timeOutTransceivWaint = ((uint16_t)0x40 << ((PINB >> 3) & 0x03)); //устанавливаем начальное значение таймера
 
-  _delay_ms(1000); //ждем
+  _delay_ms(1500); //ждем
 
   sendAddrDS(); //отправка адреса датчика
   requestTemp(); //запрос на преобразование температуры
