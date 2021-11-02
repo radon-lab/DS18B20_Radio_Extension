@@ -179,7 +179,7 @@ void sendDataTX(uint8_t* data, uint8_t size)
 {
   TX_POWER_ON; //включили питание передатчика
 
-  for (uint8_t i = 0; i < 25; i++) { //предварительная модуляция сигнала
+  for (uint8_t i = 0; i < 24; i++) { //предварительная модуляция сигнала
     _delay_us(750); //ждем
     TX_DATA_INV; //ивертируем состояние
   }
@@ -197,7 +197,7 @@ void sendDataTX(uint8_t* data, uint8_t size)
   }
 
   _delay_us(750); //ждем
-  TX_DATA_INV; //ивертируем состояние  - стоп бит
+  TX_DATA_INV; //ивертируем состояние - стоп бит
 
   TX_POWER_OFF; //выключаем питание передатчика
 }
