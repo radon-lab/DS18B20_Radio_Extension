@@ -123,10 +123,10 @@ void readOneWire(void) //эмуляция шины 1wire
 
   switch (oneWireRead()) { //читаем байт сетевого протокола
     case READ_ROM: //комманда отправить адрес
-      for (uint8_t i = 0; i < sizeof(wireAddrBuf); i++) if (oneWireWrite(wireAddrBuf[i])) return; //отправка на шину 1wire
+      for (uint8_t i = 0; i < sizeof(wireAddrBuf); i++) if (oneWireWrite(wireAddrBuf[i])) return; //отправляем адрес на шину 1wire
       return; //выходим
     case MATCH_ROM: //комманда сравнить адрес
-      for (uint8_t i = 0; i < sizeof(wireAddrBuf); i++) if (oneWireRead() != wireAddrBuf[i]) return; //отправка на шину 1wire
+      for (uint8_t i = 0; i < sizeof(wireAddrBuf); i++) if (oneWireRead() != wireAddrBuf[i]) return; //читаем адрес шины 1wire
       break; //выходим
     //      case SEARCH_ROM: //комманда поиска адреса
     //        for (uint8_t i = 0; i < 64; i++) {
@@ -210,8 +210,6 @@ void readDataRX(void) //чтение сигнала приемника
 
   uint8_t data[] = {0, 0, 0, 0, 0, 0, 0, 0, 0}; //опустошаем буфер передатчика
 
-  LED_ON; //включили светодиод
-
   TCNT0 = 0; //сбросили таймер
   TIFR0 |= (0x01 << TOV0); //сбросили флаг прерывания таймера
   GIFR |= (0x01 << PCIF); //сбросили флаг прерывания пина
@@ -223,7 +221,13 @@ void readDataRX(void) //чтение сигнала приемника
     GIFR |= (0x01 << PCIF); //сбросили флаг прерывания пина
 
     switch (dataMode) {
-      case 0: if (bitPulse > 132) dataMode = 1; break; //переходим в режим чтения
+      case 0:
+        if (bitPulse > 132) { //если получили старт бит
+          LED_ON; //включили светодиод
+          dataMode = 1; //переходим в режим чтения
+        }
+        else if (bitPulse < 100) return; //иначе если импульс короче модуляции то выходим
+        break;
       case 1:
         if (bitPulse > 100) { //если был стоп бит
           if (!checkCRC(data, byteNum)) { //если контрольная сумма совпала
