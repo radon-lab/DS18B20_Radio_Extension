@@ -69,10 +69,11 @@ int main(void) {
   //--------------------------------------------------------------------------------------
   for (;;) {
     sleep(); //спим
-    //if (++timeOutTransceivWaint >= ((uint16_t)0x40 << ((PINB >> 3) & 0x03))) { //если пришло время подать сигнал
-    //timeOutTransceivWaint = 0; //сбрасываем счетчик
-    sendDataDS(); //отправляем температуру
-    //}
+    if (++timeOutTransceivWaint >= 1) {
+      //if (++timeOutTransceivWaint >= ((uint16_t)0x40 << ((PINB >> 3) & 0x03))) { //если пришло время подать сигнал
+      timeOutTransceivWaint = 0; //сбрасываем счетчик
+      sendDataDS(); //отправляем температуру
+    }
   }
   return 0;
 }
