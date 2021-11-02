@@ -226,6 +226,7 @@ void readDataRX(void) //чтение сигнала приемника
           LED_ON; //включили светодиод
           dataMode = 1; //переходим в режим чтения
         }
+        else if (bitPulse < 100) return; //иначе выходим
         break;
       case 1:
         if (bitPulse > 100) { //если был стоп бит
