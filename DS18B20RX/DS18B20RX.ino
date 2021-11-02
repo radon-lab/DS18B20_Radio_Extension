@@ -46,7 +46,7 @@
 #define RX_DATA_LO    (BIT_CLEAR(PORT_REG, RX_DATA_BIT))
 #define RX_DATA_INP   (BIT_CLEAR(DDR_REG, RX_DATA_BIT))
 
-#define RX_DATA_INIT  RX_DATA_HI; RX_DATA_INP
+#define RX_DATA_INIT  RX_DATA_LO; RX_DATA_INP
 
 uint16_t timeOutReceiveWaint; //счетчик тиков
 uint8_t wireDataBuf[9]; //буфер шины oneWire
@@ -226,7 +226,6 @@ void readDataRX(void) //чтение сигнала приемника
           LED_ON; //включили светодиод
           dataMode = 1; //переходим в режим чтения
         }
-        else if (bitPulse < 100) return; //иначе если импульс короче модуляции то выходим
         break;
       case 1:
         if (bitPulse > 100) { //если был стоп бит
