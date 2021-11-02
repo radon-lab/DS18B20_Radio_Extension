@@ -222,11 +222,12 @@ void readDataRX(void) //чтение сигнала приемника
 
     switch (dataMode) {
       case 0:
-        if (bitPulse > 132) { //если получили старт бит
+        if (bitPulse < 95) return; //если импульс слишком короткий то выходим
+        else if (bitPulse > 132) { //иначе если получили старт бит
           LED_ON; //включили светодиод
           dataMode = 1; //переходим в режим чтения
         }
-        else if (bitPulse < 100) return; //иначе выходим
+
         break;
       case 1:
         if (bitPulse > 100) { //если был стоп бит

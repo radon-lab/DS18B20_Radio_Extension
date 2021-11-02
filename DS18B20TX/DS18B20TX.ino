@@ -42,7 +42,7 @@
 
 #define TX_DATA_INIT  TX_DATA_HI; TX_DATA_OUT
 
-uint16_t timeOutTransceivWaint = 0; //счетчик тиков
+uint16_t timeOutTransceivWaint; //счетчик тиков
 const uint8_t tempSensError[] = {0xB0, 0xFA, 0x4B, 0x46, 0x7F, 0xFF, 0x05, 0x10, 0xDB}; //значение -85
 
 int main(void) {
@@ -70,8 +70,8 @@ int main(void) {
   for (;;) {
     sleep(); //спим
     //if (++timeOutTransceivWaint >= ((uint16_t)0x40 << ((PINB >> 3) & 0x03))) { //если пришло время подать сигнал
-      //timeOutTransceivWaint = 0; //сбрасываем счетчик
-      sendDataDS(); //отправляем температуру
+    //timeOutTransceivWaint = 0; //сбрасываем счетчик
+    sendDataDS(); //отправляем температуру
     //}
   }
   return 0;
