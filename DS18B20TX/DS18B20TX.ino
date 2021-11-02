@@ -1,5 +1,5 @@
 /*
-  Arduino IDE 1.8.13 версия прошивки TX 3.3.1 релиз от 02.11.21
+  Arduino IDE 1.8.13 версия прошивки TX 3.3.2 релиз от 02.11.21
 
   Автор Radon-lab.
 */
@@ -40,7 +40,7 @@
 #define TX_DATA_INV   (PORT_REG ^= (0x01 << TX_DATA_BIT))
 #define TX_DATA_OUT   (BIT_SET(DDR_REG, TX_DATA_BIT))
 
-#define TX_DATA_INIT  TX_DATA_HI; TX_DATA_OUT
+#define TX_DATA_INIT  TX_DATA_LO; TX_DATA_OUT
 
 uint16_t timeOutTransceivWaint; //счетчик тиков
 const uint8_t tempSensError[] = {0xB0, 0xFA, 0x4B, 0x46, 0x7F, 0xFF, 0x05, 0x10, 0xDB}; //значение -85
@@ -69,8 +69,7 @@ int main(void) {
   //--------------------------------------------------------------------------------------
   for (;;) {
     sleep(); //спим
-    if (++timeOutTransceivWaint >= 1) {
-      //if (++timeOutTransceivWaint >= ((uint16_t)0x40 << ((PINB >> 3) & 0x03))) { //если пришло время подать сигнал
+    if (++timeOutTransceivWaint >= ((uint16_t)0x40 << ((PINB >> 3) & 0x03))) { //если пришло время подать сигнал
       timeOutTransceivWaint = 0; //сбрасываем счетчик
       sendDataDS(); //отправляем температуру
     }
