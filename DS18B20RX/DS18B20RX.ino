@@ -49,8 +49,8 @@
 #define RX_DATA_INIT  RX_DATA_LO; RX_DATA_INP
 
 uint16_t timeOutReceiveWaint; //счетчик тиков
-volatile uint8_t wireDataBuf[9]; //буфер шины oneWire
-volatile uint8_t wireAddrBuf[8]; //буфер адреса шины oneWire
+uint8_t wireDataBuf[9]; //буфер шины oneWire
+uint8_t wireAddrBuf[8]; //буфер адреса шины oneWire
 const uint8_t wireDataError[] = {0xD0, 0x07, 0x4B, 0x46, 0x7F, 0xFF, 0x05, 0x10, 0x46}; //значение 125
 
 int main(void) {
