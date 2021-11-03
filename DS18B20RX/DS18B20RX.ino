@@ -76,8 +76,8 @@ int main(void) {
   //--------------------------------------------------------------------------------------
   for (;;) {
     switch (GIFR & 0x60) {
-      case 0x60: //спорная ситуация - отдаем приоретет передатчику
       case 0x40: readOneWire(); break; //сигнал протокола oneWire
+      case 0x60: //спорная ситуация - отдаем приоретет передатчику
       case 0x20: readDataRX(); LED_OFF; break; //сигнал передатчика
       default: //нет сигнала с датчика температуры
         if (WDTCR &  (0x01 << WDTIF)) { //если флаг переполнения WDT установлен
@@ -128,14 +128,14 @@ void readOneWire(void) //эмуляция шины 1wire
     case MATCH_ROM: //комманда сравнить адрес
       for (uint8_t i = 0; i < sizeof(wireAddrBuf); i++) if (oneWireRead() != wireAddrBuf[i]) return; //читаем адрес шины 1wire
       break; //выходим
-    //      case SEARCH_ROM: //комманда поиска адреса
-    //        for (uint8_t i = 0; i < 64; i++) {
-    //          boolean addrBit = wireAddrBuf[i >> 3] & (0x01 << (i % 8)); //находим нужный бит адреса
-    //          oneWireWriteBit(addrBit); //отправляем прямой бит
-    //          oneWireWriteBit(!addrBit); //отправляем инверсный бит
-    //          if (oneWireReadBit() != addrBit) return; //отправка на шину 1wire
-    //        }
-    //        return; //выходим
+    //    case SEARCH_ROM: //комманда поиска адреса
+    //      for (uint8_t i = 0; i < 64; i++) {
+    //        boolean addrBit = wireAddrBuf[i >> 3] & (0x01 << (i % 8)); //находим нужный бит адреса
+    //        oneWireWriteBit(addrBit); //отправляем прямой бит
+    //        oneWireWriteBit(!addrBit); //отправляем инверсный бит
+    //        if (oneWireReadBit() != addrBit) return; //отправка на шину 1wire
+    //      }
+    //      return; //выходим
     case SKIP_ROM: break; //пропуск адресации
   }
 
