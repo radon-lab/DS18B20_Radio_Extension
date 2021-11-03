@@ -1,5 +1,5 @@
 /*
-  Arduino IDE 1.8.13 версия прошивки RX 3.3.2 релиз от 02.11.21
+  Arduino IDE 1.8.13 версия прошивки RX 3.3.2 релиз от 03.11.21
 
   Автор Radon-lab.
 */
@@ -49,8 +49,8 @@
 #define RX_DATA_INIT  RX_DATA_LO; RX_DATA_INP
 
 uint16_t timeOutReceiveWaint; //счетчик тиков
-uint8_t wireDataBuf[9]; //буфер шины oneWire
-uint8_t wireAddrBuf[8]; //буфер адреса шины oneWire
+volatile uint8_t wireDataBuf[9]; //буфер шины oneWire
+volatile uint8_t wireAddrBuf[8]; //буфер адреса шины oneWire
 const uint8_t wireDataError[] = {0xD0, 0x07, 0x4B, 0x46, 0x7F, 0xFF, 0x05, 0x10, 0x46}; //значение 125
 
 int main(void) {
@@ -76,8 +76,8 @@ int main(void) {
   //--------------------------------------------------------------------------------------
   for (;;) {
     switch (GIFR & 0x60) {
-      case 0x40: readOneWire(); break; //сигнал протокола oneWire
       case 0x60: //спорная ситуация - отдаем приоретет передатчику
+      case 0x40: readOneWire(); break; //сигнал протокола oneWire
       case 0x20: readDataRX(); LED_OFF; break; //сигнал передатчика
       default: //нет сигнала с датчика температуры
         if (WDTCR &  (0x01 << WDTIF)) { //если флаг переполнения WDT установлен
@@ -220,14 +220,14 @@ void readDataRX(void) //чтение сигнала приемника
     TCNT0 = 0; //сбросили таймер
     GIFR |= (0x01 << PCIF); //сбросили флаг прерывания пина
 
+    if (bitPulse < 95) return; //если импульс слишком короткий то выходим
+
     switch (dataMode) {
       case 0:
-        if (bitPulse < 95) return; //если импульс слишком короткий то выходим
-        else if (bitPulse > 132) { //иначе если получили старт бит
+        if (bitPulse > 132) { //иначе если получили старт бит
           LED_ON; //включили светодиод
           dataMode = 1; //переходим в режим чтения
         }
-
         break;
       case 1:
         if (bitPulse > 100) { //если был стоп бит
