@@ -220,17 +220,17 @@ void readDataRX(void) //чтение сигнала приемника
     TCNT0 = 0; //сбросили таймер
     GIFR |= (0x01 << PCIF); //сбросили флаг прерывания пина
 
-    if (bitPulse < 95) return; //если импульс слишком короткий то выходим
-
     switch (dataMode) {
       case 0:
-        if (bitPulse > 132) { //иначе если получили старт бит
+        if (bitPulse > 132 && bitPulse < 170) { //если получили старт бит
           LED_ON; //включили светодиод
           dataMode = 1; //переходим в режим чтения
         }
+        else if (bitPulse < 100) return; //иначе выходим
         break;
       case 1:
-        if (bitPulse > 100) { //если был стоп бит
+        if (bitPulse > 56 && bitPulse < 95) data[byteNum] |= 0x01 << bitNum; //иначе утанавливаем единицу в буфер
+        else if (bitPulse > 100) { //если был стоп бит
           if (!checkCRC(data, byteNum)) { //если контрольная сумма совпала
             for (uint8_t i = 0; i < byteNum; i++) {
               switch (byteNum) { //в зависимости от количества принятых байт
@@ -242,7 +242,7 @@ void readDataRX(void) //чтение сигнала приемника
           timeOutReceiveWaint = 0; //сбрасываем таймер приема
           return; //выходим если конец пакета
         }
-        else if (bitPulse > 56) data[byteNum] |= 0x01 << bitNum; //иначе утанавливаем единицу в буфер
+        else if (bitPulse < 20) return; //иначе выходим
 
         if (++bitNum > 7) { //если приняли 8 бит
           bitNum = 0; //сбрасываем счетчик бит
