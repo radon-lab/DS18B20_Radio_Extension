@@ -70,11 +70,9 @@ int main(void) {
   //--------------------------------------------------------------------------------------
   for (;;) {
     sleep(); //спим
-    if (++timeOutTransceivWaint >= timeStartTransceiv) { //если пришло время подать сигнал
-      timeOutTransceivWaint = 0; //сбрасываем счетчик
-      sendDataDS(); //отправляем температуру
-    }
+    if (++timeOutTransceivWaint >= timeStartTransceiv) sendDataDS(); //отправляем температуру
     else if (timeOutTransceivWaint == (timeStartTransceiv - 1)) requestTemp(); //запрос на преобразование температуры
+    if (timeOutTransceivWaint > timeStartTransceiv) timeOutTransceivWaint = 0; //сбрасываем счетчик
   }
   return 0;
 }
