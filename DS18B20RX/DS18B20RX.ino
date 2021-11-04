@@ -1,5 +1,5 @@
 /*
-  Arduino IDE 1.8.13 версия прошивки RX 3.3.2 релиз от 03.11.21
+  Arduino IDE 1.8.13 версия прошивки RX 3.3.2 релиз от 04.11.21
 
   Автор Radon-lab.
 */
@@ -49,6 +49,8 @@
 #define RX_DATA_INIT  RX_DATA_LO; RX_DATA_INP
 
 uint16_t timeOutReceiveWaint; //счетчик тиков
+uint8_t receiveTime; //счетчик импульса приёма
+uint8_t receiveBits; //счетчик импульса приёма
 uint8_t wireDataBuf[9]; //буфер шины oneWire
 uint8_t wireAddrBuf[8]; //буфер адреса шины oneWire
 const uint8_t wireDataError[] = {0xD0, 0x07, 0x4B, 0x46, 0x7F, 0xFF, 0x05, 0x10, 0x46}; //значение 125
@@ -75,19 +77,33 @@ int main(void) {
   wdtEnable(); //включаем WDT
   //--------------------------------------------------------------------------------------
   for (;;) {
-    switch (GIFR & 0x60) {
-      case 0x60: //спорная ситуация - отдаем приоретет шине oneWire
-      case 0x40: readOneWire(); break; //сигнал протокола oneWire
-      case 0x20: readDataRX(); LED_OFF; break; //сигнал передатчика
-      default: //нет сигнала с датчика температуры
-        if (WDTCR &  (0x01 << WDTIF)) { //если флаг переполнения WDT установлен
-          WDTCR |= (0x01 << WDTIF); //сбрасываем флаг
-          if (++timeOutReceiveWaint > 520) { //если максимальное время ожидания превышено
-            timeOutReceiveWaint = 0; //сбрасываем таймер
-            for (uint8_t i = 0; i < 9; i++) wireDataBuf[i] = wireDataError[i]; //записывае ошибку отсутствия сигнала от передатчика
-          }
-        }
-        break;
+    if (GIFR & (0x01 << INTF0)) readOneWire(); //сигнал протокола oneWire
+
+    if (GIFR & (0x01 << PCIF)) {  //сигнал передатчика
+      GIFR |= (0x01 << PCIF); //сбросили флаг прерывания пина
+      if (TIFR0 & (0x01 << TOV0)) { //если был флаг переполнения таймера
+        TIFR0 |= (0x01 << TOV0); //сбросили флаг прерывания таймера
+        receiveTime = 255; //переполнение
+      }
+      else receiveTime = TCNT0; //запомнили время
+
+      TCNT0 = 0; //сбросили таймер
+      receiveBits <<= 0x01; //сместили биты маски приема
+
+      if (receiveTime >= 95 && receiveTime < 132) receiveBits |= 0x01; //установли бит маски приема
+      else if (receiveTime >= 132 && receiveTime < 170 && receiveBits == 0xFE) { //если получили старт бит
+        LED_ON; //включили светодиод
+        readDataRX(); //читаем пакет данных
+        LED_OFF; //выключили светодиод
+      }
+    }
+
+    if (WDTCR &  (0x01 << WDTIF)) { //если флаг переполнения WDT установлен
+      WDTCR |= (0x01 << WDTIF); //сбрасываем флаг
+      if (++timeOutReceiveWaint > 520) { //если максимальное время ожидания превышено
+        timeOutReceiveWaint = 0; //сбрасываем таймер
+        for (uint8_t i = 0; i < 9; i++) wireDataBuf[i] = wireDataError[i]; //записывае ошибку отсутствия сигнала от передатчика
+      }
     }
   }
   return 0;
@@ -203,16 +219,11 @@ uint8_t oneWireReadBit(void) //чтение бита шины 1wire
 //--------------------------------------Чтение сигнал приемника------------------------------------------
 void readDataRX(void) //чтение сигнала приемника
 {
-  boolean dataMode = 0; //режим приема данных
   uint8_t bitPulse = 0; //длинна ипульса
   uint8_t bitNum = 0; //номер бита
   uint8_t byteNum = 0; //номер байта
 
   uint8_t data[] = {0, 0, 0, 0, 0, 0, 0, 0, 0}; //опустошаем буфер передатчика
-
-  TCNT0 = 0; //сбросили таймер
-  TIFR0 |= (0x01 << TOV0); //сбросили флаг прерывания таймера
-  GIFR |= (0x01 << PCIF); //сбросили флаг прерывания пина
 
   while (1) {
     while (!(GIFR & (0x01 << PCIF))) if (TIFR0 & (0x01 << TOV0)) return; //ждем флага прерывания
@@ -220,35 +231,23 @@ void readDataRX(void) //чтение сигнала приемника
     TCNT0 = 0; //сбросили таймер
     GIFR |= (0x01 << PCIF); //сбросили флаг прерывания пина
 
-    switch (dataMode) {
-      case 0:
-        if (bitPulse > 132 && bitPulse < 170) { //если получили старт бит
-          LED_ON; //включили светодиод
-          dataMode = 1; //переходим в режим чтения
-        }
-        else if (bitPulse < 100) return; //иначе выходим
-        break;
-      case 1:
-        if (bitPulse > 56 && bitPulse < 95) data[byteNum] |= 0x01 << bitNum; //иначе утанавливаем единицу в буфер
-        else if (bitPulse > 100) { //если был стоп бит
-          if (!checkCRC(data, byteNum)) { //если контрольная сумма совпала
-            for (uint8_t i = 0; i < byteNum; i++) {
-              switch (byteNum) { //в зависимости от количества принятых байт
-                case 8: wireAddrBuf[i] = data[i]; EEPROM_write(i, data[i]); break; //обновляем массив адреса шины
-                case 9: wireDataBuf[i] = data[i]; break; //обновляем массив шины
-              }
-            }
+    if (bitPulse > 56 && bitPulse < 95) data[byteNum] |= 0x01 << bitNum; //иначе утанавливаем единицу в буфер
+    else if (bitPulse > 100) { //если был стоп бит
+      if (!checkCRC(data, byteNum)) { //если контрольная сумма совпала
+        for (uint8_t i = 0; i < byteNum; i++) {
+          switch (byteNum) { //в зависимости от количества принятых байт
+            case 8: wireAddrBuf[i] = data[i]; EEPROM_write(i, data[i]); break; //обновляем массив адреса шины
+            case 9: wireDataBuf[i] = data[i]; break; //обновляем массив шины
           }
-          timeOutReceiveWaint = 0; //сбрасываем таймер приема
-          return; //выходим если конец пакета
         }
-        else if (bitPulse < 20) return; //иначе выходим
+      }
+      timeOutReceiveWaint = 0; //сбрасываем таймер приема
+      return; //выходим если конец пакета
+    }
 
-        if (++bitNum > 7) { //если приняли 8 бит
-          bitNum = 0; //сбрасываем счетчик бит
-          byteNum++; //прибавляем счетчик байт
-        }
-        break;
+    if (++bitNum > 7) { //если приняли 8 бит
+      bitNum = 0; //сбрасываем счетчик бит
+      byteNum++; //прибавляем счетчик байт
     }
   }
 }

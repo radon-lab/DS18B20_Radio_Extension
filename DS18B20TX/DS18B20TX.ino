@@ -1,5 +1,5 @@
 /*
-  Arduino IDE 1.8.13 версия прошивки TX 3.3.2 релиз от 03.11.21
+  Arduino IDE 1.8.13 версия прошивки TX 3.3.2 релиз от 04.11.21
 
   Автор Radon-lab.
 */
@@ -42,7 +42,8 @@
 
 #define TX_DATA_INIT  TX_DATA_LO; TX_DATA_OUT
 
-uint16_t timeOutTransceivWaint; //счетчик тиков
+uint16_t timeOutTransceivWaint; //счетчик тиков начала передачи
+uint16_t timeStartTransceiv; //время начала передачи
 const uint8_t tempSensError[] = {0xB0, 0xFA, 0x4B, 0x46, 0x7F, 0xFF, 0x05, 0x10, 0xDB}; //значение -85
 
 int main(void) {
@@ -57,7 +58,7 @@ int main(void) {
   DDRB &= ~(0x01 << PB3 | 0x01 << PB4); //устанавливаем PB3 и PB4 входы
   PORTB |= (0x01 << PB3 | 0x01 << PB4); //устанавливаем подтяжку для PB3 и PB4
 
-  timeOutTransceivWaint = ((uint16_t)0x40 << ((PINB >> 3) & 0x03)); //устанавливаем начальное значение таймера
+  timeStartTransceiv = timeOutTransceivWaint = ((uint16_t)0x40 << ((PINB >> 3) & 0x03)); //устанавливаем начальное значение таймера
 
   _delay_ms(1500); //ждем
 
@@ -69,10 +70,11 @@ int main(void) {
   //--------------------------------------------------------------------------------------
   for (;;) {
     sleep(); //спим
-    if (++timeOutTransceivWaint >= ((uint16_t)0x40 << ((PINB >> 3) & 0x03))) { //если пришло время подать сигнал
+    if (++timeOutTransceivWaint >= timeStartTransceiv) { //если пришло время подать сигнал
       timeOutTransceivWaint = 0; //сбрасываем счетчик
       sendDataDS(); //отправляем температуру
     }
+    else if (timeOutTransceivWaint == (timeStartTransceiv - 1)) requestTemp(); //запрос на преобразование температуры
   }
   return 0;
 }
@@ -172,14 +174,13 @@ void sendDataDS(void) //отправка температуры
   }
 
   sendDataTX(dataRaw, sizeof(dataRaw)); //оправляем 9 байт памяти
-  requestTemp(); //передаем запрос на новое преобразование температуры
 }
 //--------------------------------------Отправка данных------------------------------------------
 void sendDataTX(uint8_t* data, uint8_t size)
 {
   TX_POWER_ON; //включили питание передатчика
 
-  for (uint8_t i = 0; i < 24; i++) { //предварительная модуляция сигнала
+  for (uint8_t i = 0; i < 48; i++) { //предварительная модуляция сигнала
     _delay_us(750); //ждем
     TX_DATA_INV; //ивертируем состояние
   }
