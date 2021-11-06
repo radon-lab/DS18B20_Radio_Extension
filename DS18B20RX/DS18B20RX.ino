@@ -1,6 +1,6 @@
 /*
   Arduino IDE 1.8.13 версия прошивки RX 3.4.1 релиз от 06.11.21
-  Частота мк приемника 9.6MHz
+  Частота мк приемника 9.6MHz microCore 2.1.0
 
   Автор Radon-lab.
 */
@@ -52,7 +52,7 @@
 
 #define RX_DATA_INIT  RX_DATA_LO; RX_DATA_INP
 
-#define TICK_PER_WDT ((MAX_TIME * 60) / 8)
+#define TICK_PER_WDT ((MAX_TIME * 60) / 8) //перевод минут в тики WDT
 
 uint16_t timeOutReceiveWaint; //счетчик тиков
 uint8_t receiveTime; //счетчик импульса приёма
@@ -67,8 +67,6 @@ int main(void) {
   WIRE_INIT; //инициализация датчика температуры
   LED_INIT; //инициализация светодиода
   RX_DATA_INIT; //инициализация приемника данных
-
-  PRR = (0x01 << PRADC); //выключаем АЦП
 
   TCCR0A = 0; //отключаем OC0A/OC0B
   TCCR0B = (0x01 << CS00 | 0x01 << CS01); //пределитель 64 | нормальный режим
@@ -150,14 +148,14 @@ void readOneWire(void) //эмуляция шины 1wire
     case MATCH_ROM: //комманда сравнить адрес
       for (uint8_t i = 0; i < sizeof(wireAddrBuf); i++) if (oneWireRead(8) != wireAddrBuf[i]) return; //читаем адрес шины 1wire
       break; //продолжаем
-//    case SEARCH_ROM: //комманда поиска адреса
-//      for (uint8_t i = 0; i < 64; i++) {
-//        boolean addrBit = wireAddrBuf[i >> 3] & (0x01 << (i % 8)); //находим нужный бит адреса
-//        oneWireWrite(addrBit, 1); //отправляем прямой бит
-//        oneWireWrite(!addrBit, 1); //отправляем инверсный бит
-//        if ((boolean)oneWireRead(1) != addrBit) return; //отправка на шину 1wire
-//      }
-//      return; //выходим
+    case SEARCH_ROM: //комманда поиска адреса
+      for (uint8_t i = 0; i < 64; i++) {
+        boolean addrBit = wireAddrBuf[i >> 3] & (0x01 << (i % 8)); //находим нужный бит адреса
+        oneWireWrite(addrBit, 1); //отправляем прямой бит
+        oneWireWrite(!addrBit, 1); //отправляем инверсный бит
+        if ((boolean)oneWireRead(1) != addrBit) return; //отправка на шину 1wire
+      }
+      return; //выходим
     case SKIP_ROM: break; //пропуск адресации
   }
 
@@ -215,7 +213,7 @@ void readDataRX(void) //чтение сигнала приемника
       TCNT0 = 0; //сбросили таймер
       GIFR |= (0x01 << PCIF); //сбросили флаг прерывания пина
 
-      if (!RX_DATA_CHK && receiveTime > 23) {
+      if (!RX_DATA_CHK && receiveTime > 23) { //если обнаружили спад и длинна импульса больше минимальной
         data[byteNum] >>= 0x01; //сместили байт
         bitNum++; //добавили бит
         if (receiveTime >= 56 && receiveTime < 95) data[byteNum] |= 0x80; //утанавливаем единицу в буфер
@@ -257,7 +255,7 @@ uint8_t checkCRC(uint8_t* data, uint8_t size) //контроль CRC с датч
       : [crc_in]"0" (crcData), [data_in]"r" (data[i])
     );
   }
-  return crcData;
+  return crcData; //возвращаем результат
 }
 //--------------------------------------Запись EEPROM------------------------------------------
 void EEPROM_write(uint8_t addr, uint8_t data) //запись EEPROM
