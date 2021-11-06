@@ -1,5 +1,5 @@
 /*
-  Arduino IDE 1.8.13 версия прошивки RX 3.4.0 релиз от 05.11.21
+  Arduino IDE 1.8.13 версия прошивки RX 3.4.1 релиз от 06.11.21
   Частота мк приемника 9.6MHz
 
   Автор Radon-lab.
@@ -47,6 +47,7 @@
 
 #define RX_DATA_HI    (BIT_SET(PORT_REG, RX_DATA_BIT))
 #define RX_DATA_LO    (BIT_CLEAR(PORT_REG, RX_DATA_BIT))
+#define RX_DATA_CHK   (PIN_REG & (0x01 << RX_DATA_BIT))
 #define RX_DATA_INP   (BIT_CLEAR(DDR_REG, RX_DATA_BIT))
 
 #define RX_DATA_INIT  RX_DATA_LO; RX_DATA_INP
@@ -149,14 +150,14 @@ void readOneWire(void) //эмуляция шины 1wire
     case MATCH_ROM: //комманда сравнить адрес
       for (uint8_t i = 0; i < sizeof(wireAddrBuf); i++) if (oneWireRead(8) != wireAddrBuf[i]) return; //читаем адрес шины 1wire
       break; //продолжаем
-    case SEARCH_ROM: //комманда поиска адреса
-      for (uint8_t i = 0; i < 64; i++) {
-        boolean addrBit = wireAddrBuf[i >> 3] & (0x01 << (i % 8)); //находим нужный бит адреса
-        oneWireWrite(addrBit, 1); //отправляем прямой бит
-        oneWireWrite(!addrBit, 1); //отправляем инверсный бит
-        if ((boolean)oneWireRead(1) != addrBit) return; //отправка на шину 1wire
-      }
-      return; //выходим
+//    case SEARCH_ROM: //комманда поиска адреса
+//      for (uint8_t i = 0; i < 64; i++) {
+//        boolean addrBit = wireAddrBuf[i >> 3] & (0x01 << (i % 8)); //находим нужный бит адреса
+//        oneWireWrite(addrBit, 1); //отправляем прямой бит
+//        oneWireWrite(!addrBit, 1); //отправляем инверсный бит
+//        if ((boolean)oneWireRead(1) != addrBit) return; //отправка на шину 1wire
+//      }
+//      return; //выходим
     case SKIP_ROM: break; //пропуск адресации
   }
 
@@ -208,25 +209,28 @@ void readDataRX(void) //чтение сигнала приемника
 
   for (uint8_t byteNum = 0; byteNum < 10; byteNum++) { //счетчик принятых байт
     data[byteNum] = 0; //очищаем байт буфера приёма
-    for (uint8_t bitNum = 0; bitNum < 8; bitNum++) { //счетчик принятых бит
+    for (uint8_t bitNum = 0; bitNum < 8;) { //счетчик принятых бит
       while (!(GIFR & (0x01 << PCIF))) if (TIFR0 & (0x01 << TOV0)) return; //ждем флага прерывания
       receiveTime = TCNT0; //запомнили длинну импульса
       TCNT0 = 0; //сбросили таймер
       GIFR |= (0x01 << PCIF); //сбросили флаг прерывания пина
 
-      data[byteNum] >>= 0x01; //сместили байт
-      if (receiveTime > 56 && receiveTime < 95) data[byteNum] |= 0x80; //утанавливаем единицу в буфер
-      else if (receiveTime > 100) { //иначе если был стоп бит
-        if (!checkCRC(data, byteNum)) { //если контрольная сумма совпала
-          for (uint8_t i = 0; i < byteNum; i++) { //переписываем временный буфер в основной
-            switch (byteNum) { //в зависимости от количества принятых байт
-              case 8: wireAddrBuf[i] = data[i]; EEPROM_write(i, data[i]); break; //обновляем массив адреса шины
-              case 9: wireDataBuf[i] = data[i]; break; //обновляем массив шины
+      if (!RX_DATA_CHK && receiveTime > 23) {
+        data[byteNum] >>= 0x01; //сместили байт
+        bitNum++; //добавили бит
+        if (receiveTime >= 56 && receiveTime < 95) data[byteNum] |= 0x80; //утанавливаем единицу в буфер
+        else if (receiveTime >= 95) { //иначе если был стоп бит
+          if (!checkCRC(data, byteNum)) { //если контрольная сумма совпала
+            for (uint8_t i = 0; i < byteNum; i++) { //переписываем временный буфер в основной
+              switch (byteNum) { //в зависимости от количества принятых байт
+                case 8: wireAddrBuf[i] = data[i]; EEPROM_write(i, data[i]); break; //обновляем массив адреса шины
+                case 9: wireDataBuf[i] = data[i]; break; //обновляем массив шины
+              }
             }
           }
+          timeOutReceiveWaint = 0; //сбрасываем таймер приема
+          return; //выходим если конец пакета
         }
-        timeOutReceiveWaint = 0; //сбрасываем таймер приема
-        return; //выходим если конец пакета
       }
     }
   }
