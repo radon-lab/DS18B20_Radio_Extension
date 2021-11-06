@@ -1,9 +1,18 @@
 /*
-  Arduino IDE 1.8.13 версия прошивки TX 3.3.2 релиз от 04.11.21
+  Arduino IDE 1.8.13 версия прошивки TX 3.4.0 релиз от 05.11.21
+  Частота мк передатчика 4.8MHz
+
+  Установка перемычек(0 - разомкнуто, 1 - замкнуто)
+  0x - PB3(1) PB4(1)
+  2x - PB3(0) PB4(1)
+  4x - PB3(1) PB4(0)
+  8x - PB3(0) PB4(0)
 
   Автор Radon-lab.
 */
 #include <util/delay.h>
+
+#define MAX_TIME 60 //максимальный период одного сеанса связи(мин)
 
 #define BIT_SET(value, bit) ((value) |= (0x01 << (bit)))
 #define BIT_CLEAR(value, bit) ((value) &= ~(0x01 << (bit)))
@@ -42,6 +51,8 @@
 
 #define TX_DATA_INIT  TX_DATA_LO; TX_DATA_OUT
 
+#define TICK_PER_WDT ((MAX_TIME * 60) / 64) //рассчет минимального количества тиков
+
 uint16_t timeOutTransceivWaint; //счетчик тиков начала передачи
 uint16_t timeStartTransceiv; //время начала передачи
 const uint8_t tempSensError[] = {0xB0, 0xFA, 0x4B, 0x46, 0x7F, 0xFF, 0x05, 0x10, 0xDB}; //значение -85
@@ -58,7 +69,7 @@ int main(void) {
   DDRB &= ~(0x01 << PB3 | 0x01 << PB4); //устанавливаем PB3 и PB4 входы
   PORTB |= (0x01 << PB3 | 0x01 << PB4); //устанавливаем подтяжку для PB3 и PB4
 
-  timeStartTransceiv = timeOutTransceivWaint = ((uint16_t)0x40 << ((PINB >> 3) & 0x03)); //устанавливаем начальное значение таймера
+  timeStartTransceiv = timeOutTransceivWaint = ((uint16_t)TICK_PER_WDT << ((PINB >> 3) & 0x03)); //устанавливаем начальное значение таймера
 
   _delay_ms(1500); //ждем
 
