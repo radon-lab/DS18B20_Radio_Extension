@@ -1,4 +1,4 @@
-# <p align="center">Радиоудленитель DS18B20 на Attiny13a.</p> 
+# <p align="center">Радиоудлинитель DS18B20 на Attiny13a.</p> 
 
 - Что реализовано:
   - Полноценная шина 1wire с возможностью адресации(команды - Search ROM, Read ROM, Match ROM, Skip ROM).
