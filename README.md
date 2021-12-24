@@ -1,5 +1,7 @@
 # <p align="center">Радиоудлинитель DS18B20 на Attiny13a.</p> 
 
+Фьюзы RX прошивки Low 0x7A High 0xFF. Фьюзы TX прошивки Low 0x79 High 0xFB.
+
 - Что реализовано:
   - Полноценная шина 1wire с возможностью адресации(команды - Search ROM, Read ROM, Match ROM, Skip ROM).
   - Копирование памяти и адреса датчика(адрес хранится в EEPROM приемника).
