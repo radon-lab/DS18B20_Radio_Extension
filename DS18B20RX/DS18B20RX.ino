@@ -1,12 +1,16 @@
 /*
-  Arduino IDE 1.8.13 версия прошивки RX 3.4.1 релиз от 06.11.21
+  Arduino IDE 1.8.13 версия прошивки RX 3.5.2 релиз от 04.02.22
   Частота мк приемника 9.6MHz microCore 2.1.0
 
   Автор Radon-lab.
 */
 #include <util/delay.h>
+#include <avr/pgmspace.h>
 
 #define MAX_TIME 60 //максимальное время одного сеанса связи(мин)
+#define SLOW_MODE 1 //если наблюдаются перебои в передачи данных, установите 1
+
+#define ADDR_CELL 16 //ячейка адреса передатчика
 
 #define BIT_SET(value, bit) ((value) |= (0x01 << (bit)))
 #define BIT_CLEAR(value, bit) ((value) &= ~(0x01 << (bit)))
@@ -21,6 +25,16 @@
 #define SKIP_ROM 0xCC   //пропуск адреса
 
 #define READ_DATA 0xBE  //отправка массива памяти
+
+//пин кнопки программирования адреса PB3
+#define ADDR_SET_BIT   3 // PB3
+
+#define ADDR_SET_HI    (BIT_SET(PORT_REG, ADDR_SET_BIT))
+#define ADDR_SET_LO    (BIT_CLEAR(PORT_REG, ADDR_SET_BIT))
+#define ADDR_SET_CHK   (PIN_REG & (0x01 << ADDR_SET_BIT))
+#define ADDR_SET_INP   (BIT_CLEAR(DDR_REG, ADDR_SET_BIT))
+
+#define ADDR_SET_INIT  ADDR_SET_HI; ADDR_SET_INP
 
 //пин светодиода PB2
 #define LED_BIT   2 // PB2
@@ -57,9 +71,10 @@
 uint16_t timeOutReceiveWaint; //счетчик тиков
 uint8_t receiveTime; //счетчик импульса приёма
 uint8_t receiveBits; //регистр принятых бит
-uint8_t wireDataBuf[9]; //буфер шины oneWire
-uint8_t wireAddrBuf[8]; //буфер адреса шины oneWire
-const uint8_t wireDataError[] = {0xD0, 0x07, 0x4B, 0x46, 0x7F, 0xFF, 0x05, 0x10, 0x46}; //значение 125
+uint8_t receiveData[10]; //буфер приёмника
+
+uint8_t wireMemory[9]; //память шины oneWire
+const uint8_t wireReceiveError[] PROGMEM = {0xD0, 0x07, 0x4B, 0x46, 0x7F, 0xFF, 0x05, 0x10, 0x46}; //значение 125
 
 int main(void) {
   cli(); //запрещаем прерывания глобально
@@ -67,38 +82,59 @@ int main(void) {
   WIRE_INIT; //инициализация датчика температуры
   LED_INIT; //инициализация светодиода
   RX_DATA_INIT; //инициализация приемника данных
+  ADDR_SET_INIT; //инициализация кнопки программирования адреса
 
   TCCR0A = 0; //отключаем OC0A/OC0B
+#if SLOW_MODE
+  TCCR0B = (0x01 << CS02); //пределитель 256 | нормальный режим
+#else
   TCCR0B = (0x01 << CS00 | 0x01 << CS01); //пределитель 64 | нормальный режим
+#endif
   TIMSK0 = 0; //отключаем прерывания Таймера0
 
   PCMSK |= (0x01 << PCINT0); //настроили маску прерываний для PB0 радиоприемник
   MCUCR |= (0x01 << ISC01); //настроили маску прерываний для PB1 шина oneWire
 
-  for (uint8_t i = 0; i < 9; i++) wireDataBuf[i] = wireDataError[i]; //записывае ошибку отсутствия сигнала от передатчика
-  for (uint8_t i = 0; i < 8; i++) wireAddrBuf[i] = EEPROM_read(i); //читаем адрес из памяти
+  if (!ADDR_SET_CHK) { //если зажата кнопка программирования адреса
+    LED_ON; //включили светодиод
+    EEPROM_write(ADDR_CELL, 0); //удалили адрес передатчика
+  }
+
+  for (uint8_t i = 0; i < 9; i++) wireMemory[i] = pgm_read_byte(&wireReceiveError[i]); //записывае ошибку отсутствия сигнала от передатчика
 
   wdtEnable(); //включаем WDT
   //--------------------------------------------------------------------------------------
   for (;;) {
-    if (GIFR & (0x01 << INTF0)) readOneWire(); //сигнал протокола oneWire
+    if (GIFR & (0x01 << INTF0)) { //если увидели спад на шине 1wire
+#if SLOW_MODE
+      TCCR0B = (0x01 << CS00 | 0x01 << CS01); //пределитель 64 | нормальный режим
+#endif
+      TCNT0 = 0; //сбросили таймер
+      readOneWire(); //сигнал протокола oneWire
+#if SLOW_MODE
+      TCCR0B = (0x01 << CS02); //пределитель 256 | нормальный режим
+#endif
+      TCNT0 = 0; //сбросили таймер
+      TIFR0 |= (0x01 << TOV0); //сбросили флаг прерывания таймера
+    }
 
-    if (GIFR & (0x01 << PCIF)) {  //сигнал передатчика
+    if (GIFR & (0x01 << PCIF)) { //если увидели сигнал передатчика
       GIFR |= (0x01 << PCIF); //сбросили флаг прерывания пина
       if (TIFR0 & (0x01 << TOV0)) { //если был флаг переполнения таймера
         TIFR0 |= (0x01 << TOV0); //сбросили флаг прерывания таймера
         receiveTime = 255; //переполнение
       }
       else receiveTime = TCNT0; //запомнили время
-
       TCNT0 = 0; //сбросили таймер
-      receiveBits <<= 0x01; //сместили биты маски приема
 
-      if (receiveTime >= 95 && receiveTime < 132) receiveBits |= 0x01; //установли бит маски приема
-      else if (receiveTime >= 132 && receiveTime < 170 && receiveBits == 0xFE) { //если получили старт бит
-        LED_ON; //включили светодиод
-        readDataRX(); //читаем пакет данных
-        LED_OFF; //выключили светодиод
+      if (!RX_DATA_CHK && receiveTime >= 95) { //если низкий уровень и длинна импульса больше минимальной
+        receiveBits <<= 0x01; //сместили биты маски приема
+        if (receiveTime < 132) receiveBits |= 0x01; //установли бит маски приема
+        else if (receiveTime >= 132 && receiveTime < 170 && receiveBits == 0xFE) { //если получили старт бит
+          receiveBits = 0; //сбросили буфер раскачки
+          readDataRX(); //читаем пакет данных
+          LED_OFF; //выключили светодиод
+        }
       }
     }
 
@@ -106,7 +142,7 @@ int main(void) {
       WDTCR |= (0x01 << WDTIF); //сбрасываем флаг
       if (++timeOutReceiveWaint > TICK_PER_WDT) { //если максимальное время ожидания превышено
         timeOutReceiveWaint = 0; //сбрасываем таймер
-        for (uint8_t i = 0; i < 9; i++) wireDataBuf[i] = wireDataError[i]; //записывае ошибку отсутствия сигнала от передатчика
+        for (uint8_t i = 0; i < 9; i++) wireMemory[i] = pgm_read_byte(&wireReceiveError[i]); //записывае ошибку отсутствия сигнала от передатчика
       }
     }
   }
@@ -122,14 +158,11 @@ void wdtEnable(void) //включение WDT
 //------------------------------Эмуляция шины 1wire---------------------------------------
 void readOneWire(void) //эмуляция шины 1wire
 {
-  TCNT0 = 0; //сбросили таймер
   TIFR0 |= (0x01 << TOV0); //сбросили флаг прерывания таймера
   GIFR |= (0x01 << INTF0); //сбросили флаг прерывания пина PB1
 
   while (!WIRE_CHK) if (TIFR0 & (0x01 << TOV0)) return; //ждем окончания сигнала сброса
   if (TCNT0 < 64) return; //если сигнал сброса слишком короткий
-
-  TCNT0 = 0; //сбросили таймер
 
   _delay_us(2); //ждем
   WIRE_LO; //установили низкий уровень
@@ -143,25 +176,29 @@ void readOneWire(void) //эмуляция шины 1wire
 
   switch (oneWireRead(8)) { //читаем байт сетевого протокола
     case READ_ROM: //комманда отправить адрес
-      for (uint8_t i = 0; i < sizeof(wireAddrBuf); i++) if (oneWireWrite(wireAddrBuf[i], 8)) return; //отправляем адрес на шину 1wire
+      for (uint8_t i = 0; i < 8; i++) if (oneWireWrite(EEPROM_read(i), 8)) return; //отправляем адрес на шину 1wire
       return; //выходим
     case MATCH_ROM: //комманда сравнить адрес
-      for (uint8_t i = 0; i < sizeof(wireAddrBuf); i++) if (oneWireRead(8) != wireAddrBuf[i]) return; //читаем адрес шины 1wire
+      for (uint8_t i = 0; i < 8; i++) if (oneWireRead(8) != EEPROM_read(i)) return; //читаем адрес шины 1wire
       break; //продолжаем
     case SEARCH_ROM: //комманда поиска адреса
-      for (uint8_t i = 0; i < 64; i++) {
-        boolean addrBit = wireAddrBuf[i >> 3] & (0x01 << (i % 8)); //находим нужный бит адреса
-        oneWireWrite(addrBit, 1); //отправляем прямой бит
-        oneWireWrite(!addrBit, 1); //отправляем инверсный бит
-        if ((boolean)oneWireRead(1) != addrBit) return; //отправка на шину 1wire
+      for (uint8_t _byte = 0; _byte < 8; _byte++) { //перебираем байты адреса
+        uint8_t _addr_byte = EEPROM_read(_byte); //находим нужный байт адреса
+        for (uint8_t _bit = 0; _bit < 8; _bit++) { //перебираем биты адреса
+          oneWireWrite((_addr_byte & 0x01), 1); //отправляем прямой бит
+          oneWireWrite(!(_addr_byte & 0x01), 1); //отправляем инверсный бит
+          if ((boolean)oneWireRead(1) != (_addr_byte & 0x01)) return; //отправка на шину 1wire
+          _addr_byte >>= 0x01; //сместили байт
+        }
       }
       return; //выходим
     case SKIP_ROM: break; //пропуск адресации
+    default: return; //если команда неизвестна то выходим
   }
 
   switch (oneWireRead(8)) { //читаем байт команды
     case READ_DATA: //комманда отправить температуру
-      for (uint8_t i = 0; i < sizeof(wireDataBuf); i++) if (oneWireWrite(wireDataBuf[i], 8)) return; //отправка на шину 1wire
+      for (uint8_t i = 0; i < sizeof(wireMemory); i++) if (oneWireWrite(wireMemory[i], 8)) return; //отправка на шину 1wire
       break;
   }
 }
@@ -203,26 +240,25 @@ uint8_t oneWireRead(uint8_t size) //чтение шины 1wire
 //--------------------------------------Чтение сигнал приемника------------------------------------------
 void readDataRX(void) //чтение сигнала приемника
 {
-  uint8_t data[10]; //буфер приёмника
-
-  for (uint8_t byteNum = 0; byteNum < 10; byteNum++) { //счетчик принятых байт
-    data[byteNum] = 0; //очищаем байт буфера приёма
-    for (uint8_t bitNum = 0; bitNum < 8;) { //счетчик принятых бит
+  boolean _addr = 0; //флаг адреса
+  for (uint8_t _byte = 0; _byte < 10;) { //счетчик принятых байт
+    receiveData[_byte] = 0; //очищаем байт буфера приёма
+    for (uint8_t _bit = 0; _bit < 8;) { //счетчик принятых бит
       while (!(GIFR & (0x01 << PCIF))) if (TIFR0 & (0x01 << TOV0)) return; //ждем флага прерывания
       receiveTime = TCNT0; //запомнили длинну импульса
       TCNT0 = 0; //сбросили таймер
       GIFR |= (0x01 << PCIF); //сбросили флаг прерывания пина
 
-      if (!RX_DATA_CHK && receiveTime > 23) { //если обнаружили спад и длинна импульса больше минимальной
-        data[byteNum] >>= 0x01; //сместили байт
-        bitNum++; //добавили бит
-        if (receiveTime >= 56 && receiveTime < 95) data[byteNum] |= 0x80; //утанавливаем единицу в буфер
+      if (!RX_DATA_CHK && receiveTime >= 25) { //если обнаружили спад и длинна импульса больше минимальной
+        _bit++; //добавили бит
+        receiveData[_byte] >>= 0x01; //сместили байт
+        if (receiveTime >= 56 && receiveTime < 95) receiveData[_byte] |= 0x80; //утанавливаем единицу в буфер
         else if (receiveTime >= 95) { //иначе если был стоп бит
-          if (!checkCRC(data, byteNum)) { //если контрольная сумма совпала
-            for (uint8_t i = 0; i < byteNum; i++) { //переписываем временный буфер в основной
-              switch (byteNum) { //в зависимости от количества принятых байт
-                case 8: wireAddrBuf[i] = data[i]; EEPROM_write(i, data[i]); break; //обновляем массив адреса шины
-                case 9: wireDataBuf[i] = data[i]; break; //обновляем массив шины
+          if (!checkCRC(receiveData, _byte)) { //если контрольная сумма совпала
+            for (uint8_t i = 0; i < _byte; i++) { //переписываем временный буфер в основной
+              switch (_byte) { //в зависимости от количества принятых байт
+                case 8: EEPROM_write(i, receiveData[i]); break; //обновляем массив адреса шины
+                case 9: wireMemory[i] = receiveData[i]; break; //обновляем массив шины
               }
             }
           }
@@ -231,6 +267,15 @@ void readDataRX(void) //чтение сигнала приемника
         }
       }
     }
+    if (!_addr) { //если адрес не прочитан
+      if (receiveData[0] != EEPROM_read(ADDR_CELL)) { //если адрес не совпал
+        if (!EEPROM_read(ADDR_CELL)) EEPROM_write(ADDR_CELL, receiveData[0]); //если ячейка сброшена то записываем новый адрес
+        else return; // выходим
+      }
+      LED_ON; //включили светодиод
+      _addr = 1; //установили флаг прочитанного адреса
+    }
+    else _byte++; //иначе прибавили байт буфера
   }
 }
 //--------------------------------------Контроль CRC с датчика температуры------------------------------------------
@@ -260,14 +305,16 @@ uint8_t checkCRC(uint8_t* data, uint8_t size) //контроль CRC с датч
 //--------------------------------------Запись EEPROM------------------------------------------
 void EEPROM_write(uint8_t addr, uint8_t data) //запись EEPROM
 {
-  while (EECR & (0x01 << EEPE)); //ждём завершения записи
+  if (EEPROM_read(addr) != data) {
+    while (EECR & (0x01 << EEPE)); //ждём завершения записи
 
-  EECR |= (0x01 << EEPM1); //включаем режим стирание-запись
-  EEARL = addr; //устанавливаем адрес
-  EEDR = data; //загружаем данные
+    EECR |= (0x01 << EEPM1); //включаем режим стирание-запись
+    EEARL = addr; //устанавливаем адрес
+    EEDR = data; //загружаем данные
 
-  EECR |= (1 << EEMPE); //запускаем запись
-  EECR |= (1 << EEPE);
+    EECR |= (1 << EEMPE); //запускаем запись
+    EECR |= (1 << EEPE);
+  }
 }
 //--------------------------------------Чтение EEPROM------------------------------------------
 uint8_t EEPROM_read(uint8_t addr) //чтение EEPROM

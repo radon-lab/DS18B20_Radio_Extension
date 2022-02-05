@@ -1,6 +1,6 @@
 /*
-  Arduino IDE 1.8.13 версия прошивки TX 3.4.1 релиз от 13.11.21
-  Частота мк передатчика 4.8MHz microCore 1.5.0
+  Arduino IDE 1.8.13 версия прошивки TX 3.5.2 релиз от 04.02.22
+  Частота мк передатчика 4.8MHz microCore 1.0.5
 
   Установка перемычек(0 - разомкнуто, 1 - замкнуто)
   1x - PB3(1) PB4(1)
@@ -11,8 +11,11 @@
   Автор Radon-lab.
 */
 #include <util/delay.h>
+#include <avr/pgmspace.h>
 
+#define ADDR 0x33   //адрес периёмника
 #define MAX_TIME 60 //максимальный период одного сеанса связи(мин)
+#define SLOW_MODE 1 //если наблюдаются перебои в передачи данных, установите 1
 
 #define BIT_SET(value, bit) ((value) |= (0x01 << (bit)))
 #define BIT_CLEAR(value, bit) ((value) &= ~(0x01 << (bit)))
@@ -51,11 +54,31 @@
 
 #define TX_DATA_INIT  TX_DATA_LO; TX_DATA_OUT
 
+#if SLOW_MODE
+#define PITC_LENGTH 24
+#define PITC_TIME 3000
+
+#define START_BIT_TIME 4000
+#define STOP_BIT_TIME 3000
+
+#define HIGH_BIT_TIME 2000
+#define LOW_BIT_TIME 1000
+#else
+#define PITC_LENGTH 48
+#define PITC_TIME 750
+
+#define START_BIT_TIME 1000
+#define STOP_BIT_TIME 750
+
+#define HIGH_BIT_TIME 500
+#define LOW_BIT_TIME 250
+#endif
+
 #define TICK_PER_WDT ((MAX_TIME * 60) / 64) //рассчет минимального количества тиков
 
 uint16_t timeOutTransceivWaint; //счетчик тиков начала передачи
 uint16_t timeStartTransceiv; //время начала передачи
-const uint8_t tempSensError[] = {0xB0, 0xFA, 0x4B, 0x46, 0x7F, 0xFF, 0x05, 0x10, 0xDB}; //значение -85
+const uint8_t tempSensError[] PROGMEM = {0xB0, 0xFA, 0x4B, 0x46, 0x7F, 0xFF, 0x05, 0x10, 0xDB}; //значение -85
 
 int main(void) {
   cli(); //запрещаем прерывания глобально
@@ -73,19 +96,19 @@ int main(void) {
 
   PORTB &= ~(0x01 << PB3 | 0x01 << PB4); //отключаем подтяжку для PB3 и PB4
 
+  requestTemp(); //запрос на преобразование температуры
   _delay_ms(1500); //ждем
 
   sendAddrDS(); //отправка адреса датчика
-  requestTemp(); //запрос на преобразование температуры
   wdtEnable(); //включаем WDT
 
   sei(); //разрешаем прерывания глобально
   //--------------------------------------------------------------------------------------
   for (;;) {
-    sleep(); //спим
-    if (++timeOutTransceivWaint >= timeStartTransceiv) sendDataDS(); //отправляем температуру
+    if (++timeOutTransceivWaint > timeStartTransceiv) sendDataDS(); //отправляем температуру
     else if (timeOutTransceivWaint == (timeStartTransceiv - 1)) requestTemp(); //запрос на преобразование температуры
     if (timeOutTransceivWaint > timeStartTransceiv) timeOutTransceivWaint = 0; //сбрасываем счетчик
+    sleep(); //спим
   }
   return 0;
 }
@@ -163,54 +186,70 @@ void requestTemp(void) //запрос температуры
 //------------------------------------Отправка адреса датчика----------------------------------------
 void sendAddrDS(void) //отправка адреса датчика
 {
-  uint8_t dataRaw[8]; //временный буфер
+  uint8_t dataRaw[9]; //временный буфер
 
+  dataRaw[0] = ADDR; //установили адрес
   if (oneWireReset()) return; //посылаем сигнал сброса
   oneWireWrite(0x33); //запрос на отправку адреса
-  for (uint8_t i = 0; i < 8; i++) dataRaw[i] = oneWireRead(); //читаем 8 байт адреса
+  for (uint8_t i = 1; i < 9; i++) dataRaw[i] = oneWireRead(); //читаем 8 байт адреса
   sendDataTX(dataRaw, sizeof(dataRaw)); //оправляем 8 байт адреса
 }
 //--------------------------------------Отправка температуры------------------------------------------
 void sendDataDS(void) //отправка температуры
 {
-  uint8_t dataRaw[9]; //временный буфер
+  uint8_t dataRaw[10]; //временный буфер
 
+  dataRaw[0] = ADDR; //установили адрес
   if (oneWireReset()) { //посылаем сигнал сброса
-    for (uint8_t i = 0; i < 9; i++) dataRaw[i] = tempSensError[i]; //значение отсутсвуещего датчика
+    for (uint8_t i = 1; i < 10; i++) dataRaw[i] = pgm_read_byte(&tempSensError[i - 1]); //значение отсутсвуещего датчика
   }
   else {
     oneWireWrite(0xCC); //пропуск адресации
     oneWireWrite(0xBE); //запрос на отправку температуры
-    for (uint8_t i = 0; i < 9; i++) dataRaw[i] = oneWireRead(); //читаем 9 байт памяти
+    for (uint8_t i = 1; i < 10; i++) dataRaw[i] = oneWireRead(); //читаем 9 байт памяти
   }
 
-  sendDataTX(dataRaw, sizeof(dataRaw)); //оправляем 9 байт памяти
+  for (uint8_t i = 0; i < 3; i++) { //отправляем 3 пакета 
+    _delay_ms(50); //ждем
+    sendDataTX(dataRaw, sizeof(dataRaw)); //оправляем 9 байт памяти + адрес
+  }
 }
 //--------------------------------------Отправка данных------------------------------------------
 void sendDataTX(uint8_t* data, uint8_t size)
 {
   TX_POWER_ON; //включили питание передатчика
 
-  for (uint8_t i = 0; i < 48; i++) { //предварительная модуляция сигнала
-    _delay_us(750); //ждем
+  for (uint8_t i = 0; i < PITC_LENGTH; i++) { //предварительная модуляция сигнала
+    _delay_us(PITC_TIME); //ждем
     TX_DATA_INV; //ивертируем состояние
   }
 
   TX_DATA_LO; //устанавливаем низкий уровень
-  _delay_us(1000); //ждем
-  TX_DATA_HI; //устанавливаем высокий уровень - старт бит
+  _delay_us(START_BIT_TIME); //ждем
+  TX_DATA_HI; //устанавливаем высокий уровень
+  _delay_us(START_BIT_TIME); //ждем
+  TX_DATA_LO; //устанавливаем низкий уровень - старт бит
+  _delay_us(LOW_BIT_TIME); //ждем
+  TX_DATA_HI; //устанавливаем высокий уровень
 
-  for (uint8_t b = 0; b < size; b++) { //передаем пакет
-    for (uint8_t i = 0; i < 8; i++) { //передаем байт
-      if ((data[b] >> i) & 0x01) _delay_us(500); //передаем 1
-      else _delay_us(250); //передаем 0
-      TX_DATA_LO; //устанавливаем низкий уровень
-      _delay_us(250); //ждем
+  for (uint8_t _byte = 0; _byte < size; _byte++) { //передаем пакет
+    for (uint8_t _bit = 0; _bit < 8; _bit++) { //передаем байт
+      if (data[_byte] & 0x01) { //передаем 1
+        _delay_us(HIGH_BIT_TIME); //ждем
+        TX_DATA_LO; //устанавливаем низкий уровень
+        _delay_us(LOW_BIT_TIME); //ждем
+      }
+      else { //передаем 0
+        _delay_us(LOW_BIT_TIME); //ждем
+        TX_DATA_LO; //устанавливаем низкий уровень
+        _delay_us(HIGH_BIT_TIME); //ждем
+      }
+      data[_byte] >>= 0x01; //сместили байт
       TX_DATA_HI; //устанавливаем высокий уровень
     }
   }
 
-  _delay_us(750); //ждем
+  _delay_us(STOP_BIT_TIME); //ждем
   TX_DATA_LO; //устанавливаем низкий уровень - стоп бит
 
   TX_POWER_OFF; //выключаем питание передатчика
