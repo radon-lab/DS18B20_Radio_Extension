@@ -1,16 +1,16 @@
 /*
-  Arduino IDE 1.8.13 версия прошивки RX 3.5.2 релиз от 04.02.22
-  Частота мк приемника 9.6MHz microCore 2.1.0
+  Arduino IDE 1.8.13 версия прошивки RX 3.5.4 релиз от 16.02.22
+  Частота мк приемника 9.6MHz microCore 2.2.0
 
   Автор Radon-lab.
 */
 #include <util/delay.h>
 #include <avr/pgmspace.h>
 
-#define MAX_TIME 60 //максимальное время одного сеанса связи(мин)
+#define MAX_TIME 30 //максимальное время одного сеанса связи(мин)
 #define SLOW_MODE 1 //если наблюдаются перебои в передачи данных, установите 1
 
-#define ADDR_CELL 16 //ячейка адреса передатчика
+#define ADDR_CELL 15 //ячейка адреса передатчика
 
 #define BIT_SET(value, bit) ((value) |= (0x01 << (bit)))
 #define BIT_CLEAR(value, bit) ((value) &= ~(0x01 << (bit)))
@@ -18,13 +18,6 @@
 #define DDR_REG DDRB
 #define PIN_REG PINB
 #define PORT_REG PORTB
-
-#define SEARCH_ROM 0xF0 //поиск адреса
-#define MATCH_ROM 0x55  //отправка адреса
-#define READ_ROM 0x33   //запрос адреса
-#define SKIP_ROM 0xCC   //пропуск адреса
-
-#define READ_DATA 0xBE  //отправка массива памяти
 
 //пин кнопки программирования адреса PB3
 #define ADDR_SET_BIT   3 // PB3
@@ -66,6 +59,19 @@
 
 #define RX_DATA_INIT  RX_DATA_LO; RX_DATA_INP
 
+#define SEARCH_ROM 0xF0 //поиск адреса
+#define MATCH_ROM 0x55  //отправка адреса
+#define READ_ROM 0x33   //запрос адреса
+#define SKIP_ROM 0xCC   //пропуск адреса
+
+#define READ_DATA 0xBE  //отправка массива памяти
+
+#define START_BIT_TIME 197 //время старт бита
+#define STOP_BIT_TIME 141 //время стоп бита
+#define PITCH_TIME 141 //время бита раскачки
+#define LOW_BIT_TIME 85 //время бита 0
+#define HIGH_BIT_TIME 30 //время бита 1
+
 #define TICK_PER_WDT ((MAX_TIME * 60) / 8) //перевод минут в тики WDT
 
 uint16_t timeOutReceiveWaint; //счетчик тиков
@@ -100,8 +106,7 @@ int main(void) {
     EEPROM_write(ADDR_CELL, 0); //удалили адрес передатчика
   }
 
-  for (uint8_t i = 0; i < 9; i++) wireMemory[i] = pgm_read_byte(&wireReceiveError[i]); //записывае ошибку отсутствия сигнала от передатчика
-
+  errorReceive(); //ошибка передатчика
   wdtEnable(); //включаем WDT
   //--------------------------------------------------------------------------------------
   for (;;) {
@@ -119,18 +124,19 @@ int main(void) {
     }
 
     if (GIFR & (0x01 << PCIF)) { //если увидели сигнал передатчика
-      GIFR |= (0x01 << PCIF); //сбросили флаг прерывания пина
       if (TIFR0 & (0x01 << TOV0)) { //если был флаг переполнения таймера
         TIFR0 |= (0x01 << TOV0); //сбросили флаг прерывания таймера
         receiveTime = 255; //переполнение
       }
       else receiveTime = TCNT0; //запомнили время
-      TCNT0 = 0; //сбросили таймер
 
-      if (!RX_DATA_CHK && receiveTime >= 95) { //если низкий уровень и длинна импульса больше минимальной
+      TCNT0 = 0; //сбросили таймер
+      GIFR |= (0x01 << PCIF); //сбросили флаг прерывания пина
+
+      if (!RX_DATA_CHK && receiveTime >= PITCH_TIME) { //если низкий уровень и длинна импульса больше минимальной
         receiveBits <<= 0x01; //сместили биты маски приема
-        if (receiveTime < 132) receiveBits |= 0x01; //установли бит маски приема
-        else if (receiveTime >= 132 && receiveTime < 170 && receiveBits == 0xFE) { //если получили старт бит
+        if (receiveTime < START_BIT_TIME) receiveBits |= 0x01; //установли бит маски приема
+        else if (receiveBits == 0xFE) { //если получили старт бит
           receiveBits = 0; //сбросили буфер раскачки
           readDataRX(); //читаем пакет данных
           LED_OFF; //выключили светодиод
@@ -142,13 +148,18 @@ int main(void) {
       WDTCR |= (0x01 << WDTIF); //сбрасываем флаг
       if (++timeOutReceiveWaint > TICK_PER_WDT) { //если максимальное время ожидания превышено
         timeOutReceiveWaint = 0; //сбрасываем таймер
-        for (uint8_t i = 0; i < 9; i++) wireMemory[i] = pgm_read_byte(&wireReceiveError[i]); //записывае ошибку отсутствия сигнала от передатчика
+        errorReceive(); //ошибка передатчика
       }
     }
   }
   return 0;
 }
-//-------------------------------------Включение WDT---------------------------------------------
+//------------------------------Ошибка передатчика----------------------------------------
+void errorReceive(void) //ошибка передатчика
+{
+  for (uint8_t i = 0; i < 9; i++) wireMemory[i] = pgm_read_byte(&wireReceiveError[i]); //записывае ошибку отсутствия сигнала от передатчика
+}
+//--------------------------------Включение WDT-------------------------------------------
 void wdtEnable(void) //включение WDT
 {
   MCUSR &= ~(0x01 << WDRF); //сбрасываем флаг сброса по watchdog
@@ -244,16 +255,20 @@ void readDataRX(void) //чтение сигнала приемника
   for (uint8_t _byte = 0; _byte < 10;) { //счетчик принятых байт
     receiveData[_byte] = 0; //очищаем байт буфера приёма
     for (uint8_t _bit = 0; _bit < 8;) { //счетчик принятых бит
-      while (!(GIFR & (0x01 << PCIF))) if (TIFR0 & (0x01 << TOV0)) return; //ждем флага прерывания
-      receiveTime = TCNT0; //запомнили длинну импульса
+      while (!(GIFR & (0x01 << PCIF)) && !(TIFR0 & (0x01 << TOV0))); //ждем флага прерывания
+      if (TIFR0 & (0x01 << TOV0)) { //если был флаг переполнения таймера
+        TIFR0 |= (0x01 << TOV0); //сбросили флаг прерывания таймера
+        receiveTime = 255; //переполнение
+      }
+      else receiveTime = TCNT0; //запомнили время
       TCNT0 = 0; //сбросили таймер
       GIFR |= (0x01 << PCIF); //сбросили флаг прерывания пина
 
-      if (!RX_DATA_CHK && receiveTime >= 25) { //если обнаружили спад и длинна импульса больше минимальной
+      if (!RX_DATA_CHK && receiveTime >= HIGH_BIT_TIME) { //если обнаружили спад и длинна импульса больше минимальной
         _bit++; //добавили бит
         receiveData[_byte] >>= 0x01; //сместили байт
-        if (receiveTime >= 56 && receiveTime < 95) receiveData[_byte] |= 0x80; //утанавливаем единицу в буфер
-        else if (receiveTime >= 95) { //иначе если был стоп бит
+        if (receiveTime < LOW_BIT_TIME) receiveData[_byte] |= 0x80; //утанавливаем единицу в буфер
+        else if (receiveTime >= STOP_BIT_TIME) { //иначе если был стоп бит
           if (!checkCRC(receiveData, _byte)) { //если контрольная сумма совпала
             for (uint8_t i = 0; i < _byte; i++) { //переписываем временный буфер в основной
               switch (_byte) { //в зависимости от количества принятых байт

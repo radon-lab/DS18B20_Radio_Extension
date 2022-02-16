@@ -1,20 +1,16 @@
 /*
-  Arduino IDE 1.8.13 версия прошивки TX 3.5.2 релиз от 04.02.22
+  Arduino IDE 1.8.13 версия прошивки TX 3.5.4 релиз от 16.02.22
   Частота мк передатчика 4.8MHz microCore 1.0.5
 
-  Установка перемычек(0 - разомкнуто, 1 - замкнуто)
-  1x - PB3(1) PB4(1)
-  2x - PB3(0) PB4(1)
-  4x - PB3(1) PB4(0)
-  8x - PB3(0) PB4(0)
+  Установка перемычек:
+  JMP1 - 1мин(GND)..30мин(VCC)
+  JMP2 - 0xAA(GND)..0xCC(VCC)
 
   Автор Radon-lab.
 */
 #include <util/delay.h>
 #include <avr/pgmspace.h>
 
-#define ADDR 0x33   //адрес периёмника
-#define MAX_TIME 60 //максимальный период одного сеанса связи(мин)
 #define SLOW_MODE 1 //если наблюдаются перебои в передачи данных, установите 1
 
 #define BIT_SET(value, bit) ((value) |= (0x01 << (bit)))
@@ -55,30 +51,35 @@
 #define TX_DATA_INIT  TX_DATA_LO; TX_DATA_OUT
 
 #if SLOW_MODE
-#define PITC_LENGTH 24
-#define PITC_TIME 3000
+#define PITC_LENGTH 16
+#define PITC_TIME 4500
 
-#define START_BIT_TIME 4000
-#define STOP_BIT_TIME 3000
+#define START_BIT_TIME 6000
+#define STOP_BIT_TIME 4500
 
-#define HIGH_BIT_TIME 2000
-#define LOW_BIT_TIME 1000
+#define LOW_BIT_TIME 3000
+#define HIGH_BIT_TIME 1500
 #else
-#define PITC_LENGTH 48
-#define PITC_TIME 750
+#define PITC_LENGTH 32
+#define PITC_TIME 1125
 
-#define START_BIT_TIME 1000
-#define STOP_BIT_TIME 750
+#define START_BIT_TIME 1500
+#define STOP_BIT_TIME 1125
 
-#define HIGH_BIT_TIME 500
-#define LOW_BIT_TIME 250
+#define LOW_BIT_TIME 750
+#define HIGH_BIT_TIME 375
 #endif
 
-#define TICK_PER_WDT ((MAX_TIME * 60) / 64) //рассчет минимального количества тиков
+#define CONVERT_TIME(x) ((x * 60) / 8) //рассчет количества тиков
 
 uint16_t timeOutTransceivWaint; //счетчик тиков начала передачи
 uint16_t timeStartTransceiv; //время начала передачи
-const uint8_t tempSensError[] PROGMEM = {0xB0, 0xFA, 0x4B, 0x46, 0x7F, 0xFF, 0x05, 0x10, 0xDB}; //значение -85
+const uint8_t tempSensError[] PROGMEM = {0xB0, 0xFA, 0x4B, 0x46, 0x7F, 0xFF, 0x05, 0x10, 0xDB}; //значение ошибки -85
+
+const uint16_t transceivTime[] PROGMEM = {CONVERT_TIME(1), CONVERT_TIME(5), CONVERT_TIME(10), CONVERT_TIME(30)}; //массив времени передачи
+const uint8_t transceivAddr[] PROGMEM = {0xAA, 0xBB, 0xEE, 0xCC}; //массив адресов датчика
+
+uint8_t _current_addr;
 
 int main(void) {
   cli(); //запрещаем прерывания глобально
@@ -87,14 +88,25 @@ int main(void) {
   TX_POWER_INIT; //инициализация питания передатчика
   TX_DATA_INIT; //инициализация передатчика
 
-  PRR = (0x01 << PRADC); //выключаем АЦП
-
   DDRB &= ~(0x01 << PB3 | 0x01 << PB4); //устанавливаем PB3 и PB4 как входы
   PORTB |= (0x01 << PB3 | 0x01 << PB4); //устанавливаем подтяжку для PB3 и PB4
 
-  timeStartTransceiv = timeOutTransceivWaint = ((uint16_t)TICK_PER_WDT << ((PINB >> 3) & 0x03)); //устанавливаем начальное значение таймера
+  ADCSRA = (0x01 << ADEN) | (0x01 << ADPS0) | (0x01 << ADPS1) | (0x01 << ADPS2); //настройка АЦП
+
+  ADMUX = 3; //настройка мультиплексатора АЦП на PB3
+  _delay_ms(15); //ждем
+  ADCSRA |= (1 << ADSC); //запускаем преобразование
+  while (ADCSRA & (1 << ADSC)); //ждем окончания преобразования
+  _current_addr = pgm_read_byte(&transceivAddr[ADCH]); //установили адрес передатчика
+
+  ADMUX = 2; //настройка мультиплексатора АЦП на PB4
+  _delay_ms(15); //ждем
+  ADCSRA |= (1 << ADSC); //запускаем преобразование
+  while (ADCSRA & (1 << ADSC)); //ждем окончания преобразования
+  timeStartTransceiv = timeOutTransceivWaint = pgm_read_word(&transceivTime[ADCH]); //устанавливаем начальное значение таймера
 
   PORTB &= ~(0x01 << PB3 | 0x01 << PB4); //отключаем подтяжку для PB3 и PB4
+  PRR = (0x01 << PRADC); //выключаем АЦП
 
   requestTemp(); //запрос на преобразование температуры
   _delay_ms(1500); //ждем
@@ -105,7 +117,7 @@ int main(void) {
   sei(); //разрешаем прерывания глобально
   //--------------------------------------------------------------------------------------
   for (;;) {
-    if (++timeOutTransceivWaint > timeStartTransceiv) sendDataDS(); //отправляем температуру
+    if (++timeOutTransceivWaint >= timeStartTransceiv) sendDataDS(); //отправляем температуру
     else if (timeOutTransceivWaint == (timeStartTransceiv - 1)) requestTemp(); //запрос на преобразование температуры
     if (timeOutTransceivWaint > timeStartTransceiv) timeOutTransceivWaint = 0; //сбрасываем счетчик
     sleep(); //спим
@@ -188,7 +200,7 @@ void sendAddrDS(void) //отправка адреса датчика
 {
   uint8_t dataRaw[9]; //временный буфер
 
-  dataRaw[0] = ADDR; //установили адрес
+  dataRaw[0] = _current_addr; //установили адрес
   if (oneWireReset()) return; //посылаем сигнал сброса
   oneWireWrite(0x33); //запрос на отправку адреса
   for (uint8_t i = 1; i < 9; i++) dataRaw[i] = oneWireRead(); //читаем 8 байт адреса
@@ -199,7 +211,7 @@ void sendDataDS(void) //отправка температуры
 {
   uint8_t dataRaw[10]; //временный буфер
 
-  dataRaw[0] = ADDR; //установили адрес
+  dataRaw[0] = _current_addr; //установили адрес
   if (oneWireReset()) { //посылаем сигнал сброса
     for (uint8_t i = 1; i < 10; i++) dataRaw[i] = pgm_read_byte(&tempSensError[i - 1]); //значение отсутсвуещего датчика
   }
@@ -209,10 +221,7 @@ void sendDataDS(void) //отправка температуры
     for (uint8_t i = 1; i < 10; i++) dataRaw[i] = oneWireRead(); //читаем 9 байт памяти
   }
 
-  for (uint8_t i = 0; i < 3; i++) { //отправляем 3 пакета 
-    _delay_ms(50); //ждем
-    sendDataTX(dataRaw, sizeof(dataRaw)); //оправляем 9 байт памяти + адрес
-  }
+  sendDataTX(dataRaw, sizeof(dataRaw)); //оправляем 9 байт памяти + адрес
 }
 //--------------------------------------Отправка данных------------------------------------------
 void sendDataTX(uint8_t* data, uint8_t size)
