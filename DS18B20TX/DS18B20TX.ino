@@ -1,5 +1,5 @@
 /*
-  Arduino IDE 1.8.13 версия прошивки TX 3.5.4 релиз от 16.02.22
+  Arduino IDE 1.8.13 версия прошивки TX 3.5.5 релиз от 23.02.23
   Частота мк передатчика 4.8MHz microCore 1.0.5
 
   Установка перемычек:
@@ -11,7 +11,8 @@
 #include <util/delay.h>
 #include <avr/pgmspace.h>
 
-#define SLOW_MODE 1 //если наблюдаются перебои в передачи данных, установите 1
+#define SLOW_MODE 1 //режим передачи данных(0 - быстрый | 1 - медленный)
+#define OSCCAL_SET 0 //установка коррекции частоты(1..127)(0 - без коррекции)
 
 #define BIT_SET(value, bit) ((value) |= (0x01 << (bit)))
 #define BIT_CLEAR(value, bit) ((value) &= ~(0x01 << (bit)))
@@ -83,6 +84,10 @@ uint8_t _current_addr;
 
 int main(void) {
   cli(); //запрещаем прерывания глобально
+
+#if OSCCAL_SET
+  OSCCAL = OSCCAL_SET;
+#endif
 
   WIRE_INIT; //инициализация датчика температуры
   TX_POWER_INIT; //инициализация питания передатчика

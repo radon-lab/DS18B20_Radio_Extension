@@ -1,5 +1,5 @@
 /*
-  Arduino IDE 1.8.13 версия прошивки RX 3.5.4 релиз от 16.02.22
+  Arduino IDE 1.8.13 версия прошивки RX 3.5.5 релиз от 23.02.23
   Частота мк приемника 9.6MHz microCore 2.2.0
 
   Автор Radon-lab.
@@ -7,8 +7,9 @@
 #include <util/delay.h>
 #include <avr/pgmspace.h>
 
-#define MAX_TIME 30 //максимальное время одного сеанса связи(мин)
-#define SLOW_MODE 1 //если наблюдаются перебои в передачи данных, установите 1
+#define MAX_TIME 30 //максимальное время одного сеанса связи(1..60)(мин)
+#define SLOW_MODE 1 //режим передачи данных(0 - быстрый | 1 - медленный)
+#define OSCCAL_SET 0 //установка коррекции частоты(1..127)(0 - без коррекции)
 
 #define ADDR_CELL 15 //ячейка адреса передатчика
 
@@ -77,6 +78,7 @@
 uint16_t timeOutReceiveWaint; //счетчик тиков
 uint8_t receiveTime; //счетчик импульса приёма
 uint8_t receiveBits; //регистр принятых бит
+uint8_t receiveAddr; //адрес передатчика
 uint8_t receiveData[10]; //буфер приёмника
 
 uint8_t wireMemory[9]; //память шины oneWire
@@ -84,6 +86,10 @@ const uint8_t wireReceiveError[] PROGMEM = {0xD0, 0x07, 0x4B, 0x46, 0x7F, 0xFF, 
 
 int main(void) {
   cli(); //запрещаем прерывания глобально
+
+#if OSCCAL_SET
+  OSCCAL = OSCCAL_SET;
+#endif
 
   WIRE_INIT; //инициализация датчика температуры
   LED_INIT; //инициализация светодиода
@@ -101,10 +107,8 @@ int main(void) {
   PCMSK |= (0x01 << PCINT0); //настроили маску прерываний для PB0 радиоприемник
   MCUCR |= (0x01 << ISC01); //настроили маску прерываний для PB1 шина oneWire
 
-  if (!ADDR_SET_CHK) { //если зажата кнопка программирования адреса
-    LED_ON; //включили светодиод
-    EEPROM_write(ADDR_CELL, 0); //удалили адрес передатчика
-  }
+  if (ADDR_SET_CHK) receiveAddr = EEPROM_read(ADDR_CELL); //прочитали адрес передатчика
+  if (!receiveAddr) LED_ON; //если нет адреса то включаем индикацию
 
   errorReceive(); //ошибка передатчика
   wdtEnable(); //включаем WDT
@@ -139,7 +143,7 @@ int main(void) {
         else if (receiveBits == 0xFE) { //если получили старт бит
           receiveBits = 0; //сбросили буфер раскачки
           readDataRX(); //читаем пакет данных
-          LED_OFF; //выключили светодиод
+          if (receiveAddr) LED_OFF; //выключили светодиод
         }
       }
     }
@@ -251,7 +255,7 @@ uint8_t oneWireRead(uint8_t size) //чтение шины 1wire
 //--------------------------------------Чтение сигнал приемника------------------------------------------
 void readDataRX(void) //чтение сигнала приемника
 {
-  boolean _addr = 0; //флаг адреса
+  uint8_t _addr = 0; //флаг адреса
   for (uint8_t _byte = 0; _byte < 10;) { //счетчик принятых байт
     receiveData[_byte] = 0; //очищаем байт буфера приёма
     for (uint8_t _bit = 0; _bit < 8;) { //счетчик принятых бит
@@ -278,17 +282,19 @@ void readDataRX(void) //чтение сигнала приемника
             }
           }
           timeOutReceiveWaint = 0; //сбрасываем таймер приема
+          if (_addr == 2) EEPROM_write(ADDR_CELL, receiveAddr); //записали новый адрес передатчика
           return; //выходим если конец пакета
         }
       }
     }
     if (!_addr) { //если адрес не прочитан
-      if (receiveData[0] != EEPROM_read(ADDR_CELL)) { //если адрес не совпал
-        if (!EEPROM_read(ADDR_CELL)) EEPROM_write(ADDR_CELL, receiveData[0]); //если ячейка сброшена то записываем новый адрес
-        else return; // выходим
+      if (receiveData[0] != receiveAddr) { //если адрес не совпал
+        if (receiveAddr) return; //если ячейка заполнена то выходим
+        receiveAddr = receiveData[0]; //запомнили новый адрес передатчика
+        _addr = 2; //установили флаг нового адреса
       }
+      else _addr = 1; //установили флаг прочитанного адреса
       LED_ON; //включили светодиод
-      _addr = 1; //установили флаг прочитанного адреса
     }
     else _byte++; //иначе прибавили байт буфера
   }
@@ -320,16 +326,14 @@ uint8_t checkCRC(uint8_t* data, uint8_t size) //контроль CRC с датч
 //--------------------------------------Запись EEPROM------------------------------------------
 void EEPROM_write(uint8_t addr, uint8_t data) //запись EEPROM
 {
-  if (EEPROM_read(addr) != data) {
-    while (EECR & (0x01 << EEPE)); //ждём завершения записи
+  while (EECR & (0x01 << EEPE)); //ждём завершения записи
 
-    EECR |= (0x01 << EEPM1); //включаем режим стирание-запись
-    EEARL = addr; //устанавливаем адрес
-    EEDR = data; //загружаем данные
+  EECR |= (0x01 << EEPM1); //включаем режим стирание-запись
+  EEARL = addr; //устанавливаем адрес
+  EEDR = data; //загружаем данные
 
-    EECR |= (1 << EEMPE); //запускаем запись
-    EECR |= (1 << EEPE);
-  }
+  EECR |= (1 << EEMPE); //запускаем запись
+  EECR |= (1 << EEPE);
 }
 //--------------------------------------Чтение EEPROM------------------------------------------
 uint8_t EEPROM_read(uint8_t addr) //чтение EEPROM
