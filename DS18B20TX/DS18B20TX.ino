@@ -1,5 +1,5 @@
 /*
-  Arduino IDE 1.8.13 версия прошивки TX 3.5.5 релиз от 23.02.23
+  Arduino IDE 1.8.13 версия прошивки TX 3.5.5 релиз от 25.02.23
   Частота мк передатчика 4.8MHz microCore 1.0.5
 
   Установка перемычек:
@@ -13,6 +13,7 @@
 
 #define SLOW_MODE 1 //режим передачи данных(0 - быстрый | 1 - медленный)
 #define OSCCAL_SET 0 //установка коррекции частоты(1..127)(0 - без коррекции)
+#define RESOLUTION_SET 3 //установка разрешения датчика температуры(0 - 9бит | 1 - 10бит | 2 - 11бит | 3 - 12бит)
 
 #define BIT_SET(value, bit) ((value) |= (0x01 << (bit)))
 #define BIT_CLEAR(value, bit) ((value) &= ~(0x01 << (bit)))
@@ -100,23 +101,28 @@ int main(void) {
 
   ADMUX = 3; //настройка мультиплексатора АЦП на PB3
   _delay_ms(15); //ждем
-  ADCSRA |= (1 << ADSC); //запускаем преобразование
-  while (ADCSRA & (1 << ADSC)); //ждем окончания преобразования
+  ADCSRA |= (0x01 << ADSC); //запускаем преобразование
+  while (ADCSRA & (0x01 << ADSC)); //ждем окончания преобразования
   _current_addr = pgm_read_byte(&transceivAddr[ADCH]); //установили адрес передатчика
 
   ADMUX = 2; //настройка мультиплексатора АЦП на PB4
   _delay_ms(15); //ждем
-  ADCSRA |= (1 << ADSC); //запускаем преобразование
-  while (ADCSRA & (1 << ADSC)); //ждем окончания преобразования
+  ADCSRA |= (0x01 << ADSC); //запускаем преобразование
+  while (ADCSRA & (0x01 << ADSC)); //ждем окончания преобразования
   timeStartTransceiv = timeOutTransceivWaint = pgm_read_word(&transceivTime[ADCH]); //устанавливаем начальное значение таймера
 
   PORTB &= ~(0x01 << PB3 | 0x01 << PB4); //отключаем подтяжку для PB3 и PB4
   PRR = (0x01 << PRADC); //выключаем АЦП
 
+#if RESOLUTION_SET < 3
+  setResolution(); //установка разрешения датчика
+#endif
   requestTemp(); //запрос на преобразование температуры
-  _delay_ms(1500); //ждем
+  _delay_ms(1000); //ждем
 
   sendAddrDS(); //отправка адреса датчика
+  _delay_ms(500); //ждем
+
   wdtEnable(); //включаем WDT
 
   sei(); //разрешаем прерывания глобально
@@ -199,6 +205,16 @@ void requestTemp(void) //запрос температуры
   if (oneWireReset()) return; //посылаем сигнал сброса
   oneWireWrite(0xCC); //пропуск адресации
   oneWireWrite(0x44); //запрос на преобразование температуры
+}
+//-----------------------------------Установка разрешения датчика-----------------------------------
+void setResolution(void)
+{
+  if (oneWireReset()) return; //посылаем сигнал сброса
+  oneWireWrite(0xCC); //пропуск адресации
+  oneWireWrite(0x4E); //запись в память
+  oneWireWrite(0xFF); //устанавливаем разрешение
+  oneWireWrite(0x00);
+  oneWireWrite(0x1F | RESOLUTION_SET);
 }
 //------------------------------------Отправка адреса датчика----------------------------------------
 void sendAddrDS(void) //отправка адреса датчика
