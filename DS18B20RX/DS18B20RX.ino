@@ -23,43 +23,22 @@
 
 //пин кнопки программирования адреса PB3
 #define ADDR_SET_BIT   3 // PB3
-
-#define ADDR_SET_HI    (BIT_SET(PORT_REG, ADDR_SET_BIT))
-#define ADDR_SET_LO    (BIT_CLEAR(PORT_REG, ADDR_SET_BIT))
 #define ADDR_SET_CHK   (PIN_REG & (0x01 << ADDR_SET_BIT))
-#define ADDR_SET_INP   (BIT_CLEAR(DDR_REG, ADDR_SET_BIT))
-
-#define ADDR_SET_INIT  ADDR_SET_HI; ADDR_SET_INP
 
 //пин светодиода PB2
 #define LED_BIT   2 // PB2
-
 #define LED_ON    (BIT_SET(PORT_REG, LED_BIT))
 #define LED_OFF   (BIT_CLEAR(PORT_REG, LED_BIT))
-#define LED_OUT   (BIT_SET(DDR_REG, LED_BIT))
-
-#define LED_INIT  LED_OFF; LED_OUT
 
 //пин шины oneWire PB1
 #define WIRE_BIT   1 // PB1
-
-#define WIRE_SET  (BIT_SET(PORT_REG, WIRE_BIT))
-#define WIRE_CLR  (BIT_CLEAR(PORT_REG, WIRE_BIT))
 #define WIRE_CHK  (PIN_REG & (0x01 << WIRE_BIT))
 #define WIRE_LO   (BIT_SET(DDR_REG, WIRE_BIT))
 #define WIRE_HI   (BIT_CLEAR(DDR_REG, WIRE_BIT))
 
-#define WIRE_INIT  WIRE_CLR; WIRE_HI
-
 //пин приемника PB0
 #define RX_DATA_BIT   0 // PB0
-
-#define RX_DATA_HI    (BIT_SET(PORT_REG, RX_DATA_BIT))
-#define RX_DATA_LO    (BIT_CLEAR(PORT_REG, RX_DATA_BIT))
 #define RX_DATA_CHK   (PIN_REG & (0x01 << RX_DATA_BIT))
-#define RX_DATA_INP   (BIT_CLEAR(DDR_REG, RX_DATA_BIT))
-
-#define RX_DATA_INIT  RX_DATA_LO; RX_DATA_INP
 
 #define SEARCH_ROM 0xF0 //поиск адреса
 #define MATCH_ROM 0x55  //отправка адреса
@@ -97,10 +76,8 @@ int main(void) {
   OSCCAL = OSCCAL_SET;
 #endif
 
-  WIRE_INIT; //инициализация датчика температуры
-  LED_INIT; //инициализация светодиода
-  RX_DATA_INIT; //инициализация приемника данных
-  ADDR_SET_INIT; //инициализация кнопки программирования адреса
+  PORT_REG = (0x01 << ADDR_SET_BIT); //включили подтяжку кнопки адреса
+  DDR_REG = (0x01 << LED_BIT); //установили светодиод как выход
 
   TCCR0A = 0; //отключаем OC0A/OC0B
 #if SLOW_MODE
@@ -152,14 +129,16 @@ int main(void) {
         TCNT0 = 0; //сбросили таймер
         GIFR = (0x01 << PCIF); //сбросили флаг прерывания пина
 
-        if (!RX_DATA_CHK && receiveTime >= PITCH_TIME) { //если низкий уровень и длинна импульса больше минимальной
+        if (!RX_DATA_CHK && receiveTime >= HIGH_BIT_TIME) { //если низкий уровень и длинна импульса больше минимальной
           receiveBits <<= 0x01; //сместили биты маски приема
-          if (receiveTime < START_BIT_TIME) receiveBits |= 0x01; //установли бит маски приема
-          else if (receiveBits == 0xFE) { //если получили старт бит
+          if (receiveTime >= START_BIT_TIME) { //если получили старт бит
+            if (receiveBits == 0xFE) { //если получили все биты раскачки
+              receiveCheck(); //читаем пакет данных
+              if (receiveAddr) LED_OFF; //выключили светодиод
+            }
             receiveBits = 0; //сбросили буфер раскачки
-            receiveCheck(); //читаем пакет данных
-            if (receiveAddr) LED_OFF; //выключили светодиод
           }
+          else if (receiveTime >= PITCH_TIME) receiveBits |= 0x01; //установли бит маски приема
         }
       }
 
