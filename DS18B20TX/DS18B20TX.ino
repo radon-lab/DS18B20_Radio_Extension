@@ -1,6 +1,6 @@
 /*
-  Arduino IDE 1.8.13 версия прошивки TX 3.5.5 релиз от 25.02.23
-  Частота мк передатчика 4.8MHz microCore 1.0.5
+  Arduino IDE 1.8.13 версия прошивки TX 4.1.1 релиз от 11.03.23
+  Частота мк передатчика 4.8MHz microCore 2.2.0
 
   Установка перемычек:
   JMP1 - 1мин(GND)..30мин(VCC)
@@ -14,6 +14,16 @@
 #define SLOW_MODE 1 //режим передачи данных(0 - быстрый | 1 - медленный)
 #define OSCCAL_SET 0 //установка коррекции частоты(1..127)(0 - без коррекции)
 #define RESOLUTION_SET 3 //установка разрешения датчика температуры(0 - 9бит | 1 - 10бит | 2 - 11бит | 3 - 12бит)
+
+#define TX_CHANNEL_A 0xAA //адрес канала A(0x01..0xFF)
+#define TX_CHANNEL_B 0xBB //адрес канала B(0x01..0xFF)
+#define TX_CHANNEL_C 0xEE //адрес канала C(0x01..0xFF)
+#define TX_CHANNEL_D 0xCC //адрес канала D(0x01..0xFF)
+
+#define TX_TIME_A 1  //интервал передачи A(1..60)(мин)
+#define TX_TIME_B 5  //интервал передачи B(1..60)(мин)
+#define TX_TIME_C 10 //интервал передачи C(1..60)(мин)
+#define TX_TIME_D 30 //интервал передачи D(1..60)(мин)
 
 #define BIT_SET(value, bit) ((value) |= (0x01 << (bit)))
 #define BIT_CLEAR(value, bit) ((value) &= ~(0x01 << (bit)))
@@ -74,14 +84,18 @@
 
 #define CONVERT_TIME(x) ((x * 60) / 8) //рассчет количества тиков
 
-uint16_t timeOutTransceivWaint; //счетчик тиков начала передачи
-uint16_t timeStartTransceiv; //время начала передачи
 const uint8_t tempSensError[] PROGMEM = {0xB0, 0xFA, 0x4B, 0x46, 0x7F, 0xFF, 0x05, 0x10, 0xDB}; //значение ошибки -85
 
-const uint16_t transceivTime[] PROGMEM = {CONVERT_TIME(1), CONVERT_TIME(5), CONVERT_TIME(10), CONVERT_TIME(30)}; //массив времени передачи
-const uint8_t transceivAddr[] PROGMEM = {0xAA, 0xBB, 0xEE, 0xCC}; //массив адресов датчика
+const uint16_t transceivTime[] PROGMEM = {CONVERT_TIME(TX_TIME_A), CONVERT_TIME(TX_TIME_B), CONVERT_TIME(TX_TIME_C), CONVERT_TIME(TX_TIME_D)}; //массив времени передачи
+const uint8_t transceivAddr[] PROGMEM = {TX_CHANNEL_A, TX_CHANNEL_B, TX_CHANNEL_C, TX_CHANNEL_D}; //массив адресов датчика
+const uint8_t transceivCorrect[] PROGMEM = {2, 3, 4, 6}; //массив коррекции времени передачи
 
+uint16_t timeStartTransceiv; //счетчик времени первой передачи
+uint8_t timeEndTransceiv; //счетчик времени последней передачи
+
+uint16_t _current_time;
 uint8_t _current_addr;
+uint8_t _current_correct;
 
 int main(void) {
   cli(); //запрещаем прерывания глобально
@@ -104,12 +118,13 @@ int main(void) {
   ADCSRA |= (0x01 << ADSC); //запускаем преобразование
   while (ADCSRA & (0x01 << ADSC)); //ждем окончания преобразования
   _current_addr = pgm_read_byte(&transceivAddr[ADCH]); //установили адрес передатчика
+  _current_correct = pgm_read_byte(&transceivCorrect[ADCH]); //установили коррекцию времени передачи
 
   ADMUX = 2; //настройка мультиплексатора АЦП на PB4
   _delay_ms(15); //ждем
   ADCSRA |= (0x01 << ADSC); //запускаем преобразование
   while (ADCSRA & (0x01 << ADSC)); //ждем окончания преобразования
-  timeStartTransceiv = timeOutTransceivWaint = pgm_read_word(&transceivTime[ADCH]); //устанавливаем начальное значение таймера
+  _current_time = timeStartTransceiv = pgm_read_word(&transceivTime[ADCH]); //устанавливаем начальное и максимальное значение таймера
 
   PORTB &= ~(0x01 << PB3 | 0x01 << PB4); //отключаем подтяжку для PB3 и PB4
   PRR = (0x01 << PRADC); //выключаем АЦП
@@ -123,30 +138,53 @@ int main(void) {
   sendAddrDS(); //отправка адреса датчика
   _delay_ms(500); //ждем
 
-  wdtEnable(); //включаем WDT
+  wdtEnable_1s(); //включение WDT 1сек
 
   sei(); //разрешаем прерывания глобально
   //--------------------------------------------------------------------------------------
   for (;;) {
-    if (++timeOutTransceivWaint >= timeStartTransceiv) sendDataDS(); //отправляем температуру
-    else if (timeOutTransceivWaint == (timeStartTransceiv - 1)) requestTemp(); //запрос на преобразование температуры
-    if (timeOutTransceivWaint > timeStartTransceiv) timeOutTransceivWaint = 0; //сбрасываем счетчик
+    if (!timeEndTransceiv) { //если время коррекции окончено
+      if (++timeStartTransceiv >= _current_time) { //если пришло время отправить температуру
+        sendDataDS(); //отправляем температуру
+        timeEndTransceiv = _current_correct; //установили время коррекции
+      }
+      else if (timeStartTransceiv == (_current_time - 1)) { //если пришло время запросиить температуру
+        requestTemp(); //запрос на преобразование температуры
+        wdtEnable_1s(); //включение WDT 1сек
+        timeEndTransceiv = 8 - _current_correct; //установили время коррекции
+      }
+      if (timeStartTransceiv > _current_time) { //если конец сеанса связи
+        wdtEnable_8s(); //включение WDT 8сек
+        timeEndTransceiv = 0; //сбросили время коррекции
+        timeStartTransceiv = 0; //сбрасываем счетчик
+      }
+    }
+    else timeEndTransceiv--; //убавляен время коррекции
     sleep(); //спим
   }
   return 0;
 }
 EMPTY_INTERRUPT(WDT_vect); //прерывание WDT
-//-------------------------------------Сон---------------------------------------------
+//--------------------------------------------Сон--------------------------------------------------
 void sleep(void)
 {
   MCUCR |= (0x01 << SM1) | (0x01 << SE); //устанавливаем режим сна powerdown
   BODCR = (0x01 << BODS) | (0x01 << BODSE); //разрешаем вносить изменения
   BODCR = (0x01 << BODS); //отключаем БОД
-  asm ("sleep"); //с этого момента спим.
+  asm ("sleep"); //вошли в режим сна
 }
-//-------------------------------------Включение WDT---------------------------------------------
-void wdtEnable(void) //включение WDT
+//-----------------------------------Включение WDT 1сек--------------------------------------------
+void wdtEnable_1s(void) //включение WDT 1сек
 {
+  asm ("wdr"); //сбросили таймер watchdog
+  MCUSR &= ~(0x01 << WDRF); //сбрасываем флаг сброса по watchdog
+  WDTCR |= (0x01 << WDCE) | (0x01 << WDE); //разрешаем внесение изменений
+  WDTCR = (0x01 << WDTIE) | (0x01 << WDP2) | (0x01 << WDP1); //устанавливаем режим прерываний каждую 1сек
+}
+//-----------------------------------Включение WDT 8сек--------------------------------------------
+void wdtEnable_8s(void) //включение WDT 8сек
+{
+  asm ("wdr"); //сбросили таймер watchdog
   MCUSR &= ~(0x01 << WDRF); //сбрасываем флаг сброса по watchdog
   WDTCR |= (0x01 << WDCE) | (0x01 << WDE); //разрешаем внесение изменений
   WDTCR = (0x01 << WDTIE) | (0x01 << WDP3) | (0x01 << WDP0); //устанавливаем режим прерываний каждые 8сек
