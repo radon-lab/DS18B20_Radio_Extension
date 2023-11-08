@@ -1,4 +1,5 @@
-# <p align="center">Радиоудлинитель DS18B20 на Attiny13a.</p> 
+# <p align="center">Страница проекта [Радиоудлинитель DS18B20](https://community.alexgyver.ru/threads/radioudlinitel-datchika-temperatury-ds18b20.6173/) на форуме.</p>
+![WDS18B20](https://github.com/radon-lab/DS18B20_Radio_Extension/assets/71728333/419ab3e5-7875-44d0-b21b-a40c04688652)
 
 <p align="center">Внимание! Перед прошивкой передатчика, обязательно полностью отключите радио-модуль, иначе он может выйти из строя!</p> 
 <p align="center">Так-же желательно считать из сигнатуры мк передатчика калибровочный байт для осциллятора 4.8МГц и прописать его в OSCCAL_SET прошивки передатчика!</p> 
