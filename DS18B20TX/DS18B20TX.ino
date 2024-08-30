@@ -1,5 +1,5 @@
 /*
-  Arduino IDE 1.8.13 версия прошивки TX 4.1.1 релиз от 11.03.23
+  Arduino IDE 1.8.13 версия прошивки TX 4.1.2 релиз от 30.08.24
   Частота мк передатчика 4.8MHz microCore 2.2.0
 
   Установка перемычек:
@@ -127,8 +127,10 @@ int main(void) {
   _current_time = timeStartTransceiv = pgm_read_word(&transceivTime[ADCH]); //устанавливаем начальное и максимальное значение таймера
 
   PORTB &= ~(0x01 << PB3 | 0x01 << PB4); //отключаем подтяжку для PB3 и PB4
-  PRR = (0x01 << PRADC); //выключаем АЦП
-
+  
+  ADCSRA = 0x00; //выключаем АЦП
+  PRR = (0x01 << PRADC); //выключаем питание АЦП
+  
 #if RESOLUTION_SET < 3
   setResolution(); //установка разрешения датчика
 #endif
