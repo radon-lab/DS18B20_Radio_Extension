@@ -1,5 +1,5 @@
 /*
-  Arduino IDE 1.8.13 версия прошивки RX 4.1.1 релиз от 02.11.23
+  Arduino IDE 1.8.13 версия прошивки RX 4.1.2 релиз от 10.12.24
   Частота мк приемника 9.6MHz microCore 2.2.0
 
   Автор Radon-lab.
@@ -7,7 +7,7 @@
 #include <util/delay.h>
 #include <avr/pgmspace.h>
 
-#define MAX_TIME 30 //максимальное время одного сеанса связи(1..60)(мин)
+#define MAX_TIME 90 //максимальное время одного сеанса связи(1..240)(мин)
 #define SLOW_MODE 1 //режим передачи данных(0 - быстрый | 1 - медленный)
 #define OSCCAL_SET 0 //установка коррекции частоты(1..127)(0 - без коррекции)
 
@@ -22,22 +22,22 @@
 #define PORT_REG PORTB
 
 //пин кнопки программирования адреса PB3
-#define ADDR_SET_BIT   3 // PB3
+#define ADDR_SET_BIT   3 //PB3
 #define ADDR_SET_CHK   (PIN_REG & (0x01 << ADDR_SET_BIT))
 
 //пин светодиода PB2
-#define LED_BIT   2 // PB2
+#define LED_BIT   2 //PB2
 #define LED_ON    (BIT_SET(PORT_REG, LED_BIT))
 #define LED_OFF   (BIT_CLEAR(PORT_REG, LED_BIT))
 
 //пин шины oneWire PB1
-#define WIRE_BIT   1 // PB1
+#define WIRE_BIT   1 //PB1
 #define WIRE_CHK  (PIN_REG & (0x01 << WIRE_BIT))
 #define WIRE_LO   (BIT_SET(DDR_REG, WIRE_BIT))
 #define WIRE_HI   (BIT_CLEAR(DDR_REG, WIRE_BIT))
 
 //пин приемника PB0
-#define RX_DATA_BIT   0 // PB0
+#define RX_DATA_BIT   0 //PB0
 #define RX_DATA_CHK   (PIN_REG & (0x01 << RX_DATA_BIT))
 
 #define SEARCH_ROM 0xF0 //поиск адреса

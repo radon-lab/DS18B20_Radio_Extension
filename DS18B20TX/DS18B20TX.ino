@@ -33,7 +33,7 @@
 #define PORT_REG PORTB
 
 //пин сенсора температуры PB2
-#define WIRE_BIT   2 // PB2
+#define WIRE_BIT   2 //PB2
 
 #define WIRE_SET  (BIT_SET(PORT_REG, WIRE_BIT))
 #define WIRE_CLR  (BIT_CLEAR(PORT_REG, WIRE_BIT))
@@ -44,7 +44,7 @@
 #define WIRE_INIT  WIRE_CLR; WIRE_HI
 
 //пин питания передатчика PB0
-#define TX_POWER_BIT   0 // PB0
+#define TX_POWER_BIT   0 //PB0
 
 #define TX_POWER_ON    (BIT_SET(PORT_REG, TX_POWER_BIT))
 #define TX_POWER_OFF   (BIT_CLEAR(PORT_REG, TX_POWER_BIT))
@@ -53,7 +53,7 @@
 #define TX_POWER_INIT  TX_POWER_OFF; TX_POWER_OUT
 
 //пин передатчика PB1
-#define TX_DATA_BIT   1 // PB1
+#define TX_DATA_BIT   1 //PB1
 
 #define TX_DATA_HI    (BIT_SET(PORT_REG, TX_DATA_BIT))
 #define TX_DATA_LO    (BIT_CLEAR(PORT_REG, TX_DATA_BIT))
